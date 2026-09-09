@@ -33,7 +33,7 @@ jobs:
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Unpack and apply build compatibility fixes
+      - name: Unpack and apply BRO TV v0.3.0 product patch
         run: |
           rm -rf project
           mkdir project
@@ -41,6 +41,13 @@ jobs:
           PROJECT_DIR="$(find project -maxdepth 2 -name settings.gradle.kts -printf '%h\n' | head -n1)"
           test -n "$PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+          echo "Applying BRO TV v0.3.0 product patch..."
+          cat .github/patches/v0.3.0.part* | base64 -d | gunzip > /tmp/brotv-v0.3.0.patch
+          (
+            cd "$PROJECT_DIR"
+            patch -p1 < /tmp/brotv-v0.3.0.patch
+          )
 
           APP_GRADLE="$PROJECT_DIR/app/build.gradle.kts"
           sed -i 's/androidx.compose:compose-bom:2026.08.00/androidx.compose:compose-bom:2025.08.00/' "$APP_GRADLE"
@@ -56,7 +63,7 @@ jobs:
           sed -i 's/bufferForPlaybackAfterRebufferMs = when/when/' "$PLAYER_ENGINE"
 
           PLAYER_SCREEN="$PROJECT_DIR/app/src/main/java/com/brotv/iptvplayer/ui/screens/PlayerScreen.kt"
-          # nativeKeyEvent is a KeyEvent member property; the old Compose BOM does not expose it as a top-level import.
+          # nativeKeyEvent is a KeyEvent member property; the older compatible Compose BOM does not expose a top-level import.
           sed -i '/import androidx.compose.ui.input.key.nativeKeyEvent/d' "$PLAYER_SCREEN"
 
           echo '--- Effective app/build.gradle.kts ---'
