@@ -34,7 +34,7 @@ jobs:
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Unpack and apply BRO TV v0.5.0 product patch
+      - name: Unpack and apply BRO TV v0.6.0 product patch
         run: |
           rm -rf project
           mkdir project
@@ -114,8 +114,15 @@ jobs:
             patch -p1 < /tmp/brotv-v0.5.0.patch
           )
 
-          grep -q 'versionCode = 5' "$APP_GRADLE"
-          grep -q 'versionName = "0.5.0"' "$APP_GRADLE"
+          echo "Applying BRO TV v0.6.0 strict visual/navigation patch..."
+          cat .github/patches/v0.6.0.part* | base64 -d | gunzip > /tmp/brotv-v0.6.0.patch
+          (
+            cd "$PROJECT_DIR"
+            patch -p1 < /tmp/brotv-v0.6.0.patch
+          )
+
+          grep -q 'versionCode = 6' "$APP_GRADLE"
+          grep -q 'versionName = "0.6.0"' "$APP_GRADLE"
           grep -q 'ChannelQualityDetector' "$PROJECT_DIR/app/src/main/java/com/brotv/iptvplayer/model/ChannelOrganizer.kt"
 
           echo '--- Effective app/build.gradle.kts ---'
@@ -145,7 +152,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: downloader-latest
-          name: BRO TV IPTV PLAYER v0.5.0 - Downloader build
+          name: BRO TV IPTV PLAYER v0.6.0 - Downloader build
           prerelease: true
           make_latest: false
           files: |
