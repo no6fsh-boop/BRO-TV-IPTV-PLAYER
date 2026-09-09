@@ -108,7 +108,7 @@ jobs:
           )
 
           echo "Applying BRO TV v0.5.0 approved design/product patch..."
-          base64 -d .github/patches/v0.5.0.b64 | gunzip > /tmp/brotv-v0.5.0.patch
+          cat .github/patches/v0.5.0.part* | base64 -d | gunzip > /tmp/brotv-v0.5.0.patch
           (
             cd "$PROJECT_DIR"
             patch -p1 < /tmp/brotv-v0.5.0.patch
