@@ -14,7 +14,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,19 +28,27 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install SDK 37
+      - name: Install stable Android SDK 36
         run: |
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platform-tools" "platforms;android-37" "build-tools;36.0.0"
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Unpack project
+      - name: Unpack and pin AndroidX versions compatible with SDK 36
         run: |
           rm -rf project
           mkdir project
           unzip -q BRO_TV_IPTV_PLAYER.zip -d project
           PROJECT_DIR="$(find project -maxdepth 2 -name settings.gradle.kts -printf '%h\n' | head -n1)"
+          test -n "$PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          sed -i 's/compileSdk = 36/compileSdk = 37/' "$PROJECT_DIR/app/build.gradle.kts"
+          APP_GRADLE="$PROJECT_DIR/app/build.gradle.kts"
+          sed -i 's/androidx.compose:compose-bom:2026.08.00/androidx.compose:compose-bom:2025.08.00/' "$APP_GRADLE"
+          sed -i 's/androidx.activity:activity-compose:1.13.0/androidx.activity:activity-compose:1.11.0/' "$APP_GRADLE"
+          sed -i 's/androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0/androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4/' "$APP_GRADLE"
+          sed -i 's/androidx.lifecycle:lifecycle-runtime-compose:2.11.0/androidx.lifecycle:lifecycle-runtime-compose:2.9.4/' "$APP_GRADLE"
+          sed -i 's/androidx.core:core-ktx:1.19.0/androidx.core:core-ktx:1.17.0/' "$APP_GRADLE"
+          echo '--- Effective app/build.gradle.kts ---'
+          cat "$APP_GRADLE"
 
       - name: Build debug APK
         run: |
