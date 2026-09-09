@@ -63,8 +63,34 @@ jobs:
           sed -i 's/bufferForPlaybackAfterRebufferMs = when/when/' "$PLAYER_ENGINE"
 
           PLAYER_SCREEN="$PROJECT_DIR/app/src/main/java/com/brotv/iptvplayer/ui/screens/PlayerScreen.kt"
-          # nativeKeyEvent is a KeyEvent member property; the older compatible Compose BOM does not expose a top-level import.
           sed -i '/import androidx.compose.ui.input.key.nativeKeyEvent/d' "$PLAYER_SCREEN"
+
+          python3 - "$PROJECT_DIR" <<'PY'
+          from pathlib import Path
+          import sys
+
+          root = Path(sys.argv[1])
+          files = [
+              root / "app/src/main/java/com/brotv/iptvplayer/ui/screens/CategoryVisibilityScreen.kt",
+              root / "app/src/main/java/com/brotv/iptvplayer/ui/screens/LiveTvScreen.kt",
+              root / "app/src/main/java/com/brotv/iptvplayer/ui/screens/SettingsScreen.kt",
+          ]
+          replacements = {
+              'Border(BorderStroke(1.dp, if (isHidden) BroRed.copy(.55f) else Color(0xFF36383D)), RoundedCornerShape(9.dp))': 'Border(BorderStroke(1.dp, if (isHidden) BroRed.copy(.55f) else Color(0xFF36383D)))',
+              'Border(BorderStroke(3.dp, BroRed), RoundedCornerShape(9.dp))': 'Border(BorderStroke(3.dp, BroRed))',
+              'Border(BorderStroke(1.dp, Color(0xFF34363B)), RoundedCornerShape(8.dp))': 'Border(BorderStroke(1.dp, Color(0xFF34363B)))',
+              'Border(BorderStroke(3.dp, BroRed), RoundedCornerShape(8.dp))': 'Border(BorderStroke(3.dp, BroRed))',
+              'Border(BorderStroke(1.dp, if (smart) BroRed.copy(.32f) else Color(0xFF34363B)), RoundedCornerShape(8.dp))': 'Border(BorderStroke(1.dp, if (smart) BroRed.copy(.32f) else Color(0xFF34363B)))',
+              'Border(BorderStroke(2.dp, BroRed), RoundedCornerShape(8.dp))': 'Border(BorderStroke(2.dp, BroRed))',
+              'Border(BorderStroke(1.dp, if (active) BroRed.copy(.55f) else Color(0xFF3A3B40)), RoundedCornerShape(12.dp))': 'Border(BorderStroke(1.dp, if (active) BroRed.copy(.55f) else Color(0xFF3A3B40)))',
+              'Border(BorderStroke(3.dp, BroRed), RoundedCornerShape(12.dp))': 'Border(BorderStroke(3.dp, BroRed))',
+          }
+          for path in files:
+              text = path.read_text()
+              for old, new in replacements.items():
+                  text = text.replace(old, new)
+              path.write_text(text)
+          PY
 
           echo '--- Effective app/build.gradle.kts ---'
           cat "$APP_GRADLE"
