@@ -56,9 +56,8 @@ jobs:
           sed -i 's/bufferForPlaybackAfterRebufferMs = when/when/' "$PLAYER_ENGINE"
 
           PLAYER_SCREEN="$PROJECT_DIR/app/src/main/java/com/brotv/iptvplayer/ui/screens/PlayerScreen.kt"
+          # nativeKeyEvent is a KeyEvent member property; the old Compose BOM does not expose it as a top-level import.
           sed -i '/import androidx.compose.ui.input.key.nativeKeyEvent/d' "$PLAYER_SCREEN"
-          sed -i 's/key\.nativeKeyEvent\.repeatCount/key.repeatCount/g' "$PLAYER_SCREEN"
-          sed -i 's/key\.nativeKeyEvent\.keyCode/key.keyCode/g' "$PLAYER_SCREEN"
 
           echo '--- Effective app/build.gradle.kts ---'
           cat "$APP_GRADLE"
