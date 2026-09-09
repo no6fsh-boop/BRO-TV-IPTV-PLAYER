@@ -16,5 +16,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: BRO-TV-source-base
-          path: BRO-TV-IPTV-PLAYER.zip
+          path: BRO_TV_IPTV_PLAYER.zip
           retention-days: 7
+          if-no-files-found: error
