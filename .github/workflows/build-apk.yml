@@ -33,7 +33,7 @@ jobs:
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Unpack and pin AndroidX versions compatible with SDK 36
+      - name: Unpack and apply build compatibility fixes
         run: |
           rm -rf project
           mkdir project
@@ -41,12 +41,25 @@ jobs:
           PROJECT_DIR="$(find project -maxdepth 2 -name settings.gradle.kts -printf '%h\n' | head -n1)"
           test -n "$PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
           APP_GRADLE="$PROJECT_DIR/app/build.gradle.kts"
           sed -i 's/androidx.compose:compose-bom:2026.08.00/androidx.compose:compose-bom:2025.08.00/' "$APP_GRADLE"
           sed -i 's/androidx.activity:activity-compose:1.13.0/androidx.activity:activity-compose:1.11.0/' "$APP_GRADLE"
           sed -i 's/androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0/androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4/' "$APP_GRADLE"
           sed -i 's/androidx.lifecycle:lifecycle-runtime-compose:2.11.0/androidx.lifecycle:lifecycle-runtime-compose:2.9.4/' "$APP_GRADLE"
           sed -i 's/androidx.core:core-ktx:1.19.0/androidx.core:core-ktx:1.17.0/' "$APP_GRADLE"
+
+          PLAYER_ENGINE="$PROJECT_DIR/app/src/main/java/com/brotv/iptvplayer/player/PlayerEngine.kt"
+          sed -i 's/minBufferMs = when/when/' "$PLAYER_ENGINE"
+          sed -i 's/maxBufferMs = when/when/' "$PLAYER_ENGINE"
+          sed -i 's/bufferForPlaybackMs = when/when/' "$PLAYER_ENGINE"
+          sed -i 's/bufferForPlaybackAfterRebufferMs = when/when/' "$PLAYER_ENGINE"
+
+          PLAYER_SCREEN="$PROJECT_DIR/app/src/main/java/com/brotv/iptvplayer/ui/screens/PlayerScreen.kt"
+          sed -i '/import androidx.compose.ui.input.key.nativeKeyEvent/d' "$PLAYER_SCREEN"
+          sed -i 's/key\.nativeKeyEvent\.repeatCount/key.repeatCount/g' "$PLAYER_SCREEN"
+          sed -i 's/key\.nativeKeyEvent\.keyCode/key.keyCode/g' "$PLAYER_SCREEN"
+
           echo '--- Effective app/build.gradle.kts ---'
           cat "$APP_GRADLE"
 
