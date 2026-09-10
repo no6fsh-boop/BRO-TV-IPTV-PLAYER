@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Reconstruct BRO TV v0.4.0 source
+      - name: Reconstruct BRO TV v0.6.0 source
         run: |
           rm -rf project
           mkdir project
@@ -46,7 +46,6 @@ jobs:
           python3 - "$PROJECT_DIR" <<'PY'
           from pathlib import Path
           import sys
-
           root = Path(sys.argv[1])
           files = [
               root / "app/src/main/java/com/brotv/iptvplayer/ui/screens/CategoryVisibilityScreen.kt",
@@ -64,12 +63,11 @@ jobs:
               'Border(BorderStroke(3.dp, BroRed), RoundedCornerShape(12.dp))': 'Border(BorderStroke(3.dp, BroRed))',
           }
           for path in files:
-              if not path.exists():
-                  continue
-              text = path.read_text()
-              for old, new in replacements.items():
-                  text = text.replace(old, new)
-              path.write_text(text)
+              if path.exists():
+                  text = path.read_text()
+                  for old, new in replacements.items():
+                      text = text.replace(old, new)
+                  path.write_text(text)
           PY
 
           cat .github/patches/v0.4.0.valid.part* | base64 -d | gunzip > /tmp/brotv-v0.4.0.patch
@@ -84,13 +82,25 @@ jobs:
             patch -p1 < /tmp/brotv-v0.4.0-provider-hotfix.patch
           )
 
+          cat .github/patches/v0.5.0.part* | base64 -d | gunzip > /tmp/brotv-v0.5.0.patch
+          (
+            cd "$PROJECT_DIR"
+            patch -p1 < /tmp/brotv-v0.5.0.patch
+          )
+
+          cat .github/patches/v0.6.0.part* | base64 -d | gunzip > /tmp/brotv-v0.6.0.patch
+          (
+            cd "$PROJECT_DIR"
+            patch -p1 < /tmp/brotv-v0.6.0.patch
+          )
+
           cd "$PROJECT_DIR"
-          zip -qr "$GITHUB_WORKSPACE/BRO-TV-IPTV-PLAYER-v0.4.0-source.zip" .
+          zip -qr "$GITHUB_WORKSPACE/BRO-TV-IPTV-PLAYER-v0.6.0-source.zip" .
 
       - name: Upload reconstructed source
         uses: actions/upload-artifact@v4
         with:
-          name: BRO-TV-v0.4.0-source
-          path: BRO-TV-IPTV-PLAYER-v0.4.0-source.zip
+          name: BRO-TV-v0.6.0-source
+          path: BRO-TV-IPTV-PLAYER-v0.6.0-source.zip
           retention-days: 7
           if-no-files-found: error
