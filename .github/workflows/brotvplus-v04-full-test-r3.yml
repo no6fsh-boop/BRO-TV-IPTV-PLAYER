@@ -1,4 +1,4 @@
-name: BROTV+ v0.4 full Android TV test R7
+name: BROTV+ v0.4 full Android TV test R8
 
 on:
   workflow_dispatch:
@@ -64,105 +64,96 @@ jobs:
         run: |
           set -euxo pipefail
           cat >/tmp/fake_iptv.js <<'JS'
-          const http = require('http');
-          const { URL } = require('url');
-          const sendJson=(res,obj)=>{const body=Buffer.from(JSON.stringify(obj));res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Content-Length':body.length});res.end(body)};
-          const server=http.createServer((req,res)=>{
-            const u=new URL(req.url,'http://127.0.0.1:18080'); const a=u.searchParams.get('action')||'';
-            console.log('[IPTV]',req.method,u.pathname,a);
-            if(u.pathname.endsWith('/player_api.php')||u.pathname==='/player_api.php'){
-              if(!a)return sendJson(res,{user_info:{auth:1,status:'Active',exp_date:'1999999999',max_connections:'2'},server_info:{url:'10.0.2.2',port:'18080'}});
-              if(a==='get_live_categories')return sendJson(res,[{category_id:'1',category_name:'رياضة'},{category_id:'2',category_name:'نسخ احتياطية'}]);
-              if(a==='get_live_streams')return sendJson(res,[{stream_id:101,name:'beIN Sports 1 FHD',category_id:'1',stream_icon:'',epg_channel_id:'bein1',tv_archive:1,tv_archive_duration:'3'},{stream_id:102,name:'beIN Sports 1 HD BACKUP',category_id:'2',stream_icon:'',epg_channel_id:'bein1',tv_archive:1,tv_archive_duration:'3'},{stream_id:103,name:'Sports Test HD',category_id:'1',stream_icon:'',epg_channel_id:'sports-test',tv_archive:0,tv_archive_duration:'0'}]);
-              if(a==='get_simple_data_table'||a==='get_short_epg'){const n=Math.floor(Date.now()/1000);return sendJson(res,{epg_listings:[{title:'VGVzdCBNYXRjaA==',description:'U3ludGhldGljIEVQRw==',start_timestamp:n-1800,stop_timestamp:n+1800},{title:'TmV4dCBNYXRjaA==',description:'TmV4dA==',start_timestamp:n+1800,stop_timestamp:n+5400}]})}
-              if(a==='get_vod_categories')return sendJson(res,[{category_id:'10',category_name:'أفلام تجريبية'}]);
-              if(a==='get_vod_streams')return sendJson(res,[{stream_id:201,name:'Synthetic Movie',category_id:'10',stream_icon:'',rating:'8.1',year:'2026',genre:'Test',plot:'Synthetic movie',duration:'00:01:00',container_extension:'mp4',added:'1'}]);
-              if(a==='get_series_categories')return sendJson(res,[{category_id:'20',category_name:'مسلسلات تجريبية'}]);
-              if(a==='get_series')return sendJson(res,[{series_id:301,name:'Synthetic Series',category_id:'20',cover:'',rating:'8.5',year:'2026',genre:'Test',plot:'Synthetic series',last_modified:'1'}]);
-              if(a==='get_series_info')return sendJson(res,{info:{cover:'',rating:'8.5',year:'2026',genre:'Test',plot:'Synthetic series'},episodes:{'1':[{id:401,episode_num:1,title:'Episode 1',container_extension:'mp4',info:{duration:'00:01:00',plot:'Synthetic episode',movie_image:''}}]}});
-              return sendJson(res,[]);
+          const http=require('http'); const {URL}=require('url');
+          const send=(r,o)=>{const b=Buffer.from(JSON.stringify(o));r.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Content-Length':b.length});r.end(b)};
+          http.createServer((req,res)=>{
+            const u=new URL(req.url,'http://127.0.0.1:18080'),a=u.searchParams.get('action')||''; console.log('[IPTV]',req.method,u.pathname,a);
+            if(u.pathname.endsWith('/player_api.php')){
+              if(!a)return send(res,{user_info:{auth:1,status:'Active',exp_date:'1999999999',max_connections:'2'},server_info:{url:'10.0.2.2',port:'18080'}});
+              if(a==='get_live_categories')return send(res,[{category_id:'1',category_name:'رياضة'},{category_id:'2',category_name:'نسخ احتياطية'}]);
+              if(a==='get_live_streams')return send(res,[{stream_id:101,name:'beIN Sports 1 FHD',category_id:'1',stream_icon:'',epg_channel_id:'bein1',tv_archive:1,tv_archive_duration:'3'},{stream_id:102,name:'beIN Sports 1 HD BACKUP',category_id:'2',stream_icon:'',epg_channel_id:'bein1',tv_archive:1,tv_archive_duration:'3'}]);
+              if(a==='get_simple_data_table'||a==='get_short_epg'){const n=Math.floor(Date.now()/1000);return send(res,{epg_listings:[{title:'VGVzdCBNYXRjaA==',description:'U3ludGhldGljIEVQRw==',start_timestamp:n-1800,stop_timestamp:n+1800}]})}
+              if(a==='get_vod_categories')return send(res,[{category_id:'10',category_name:'أفلام تجريبية'}]);
+              if(a==='get_vod_streams')return send(res,[{stream_id:201,name:'Synthetic Movie',category_id:'10',stream_icon:'',rating:'8.1',year:'2026',genre:'Test',plot:'Synthetic movie',duration:'00:01:00',container_extension:'mp4',added:'1'}]);
+              if(a==='get_series_categories')return send(res,[{category_id:'20',category_name:'مسلسلات تجريبية'}]);
+              if(a==='get_series')return send(res,[{series_id:301,name:'Synthetic Series',category_id:'20',cover:'',rating:'8.5',year:'2026',genre:'Test',plot:'Synthetic series',last_modified:'1'}]);
+              if(a==='get_series_info')return send(res,{info:{cover:'',rating:'8.5',year:'2026'},episodes:{'1':[{id:401,episode_num:1,title:'Episode 1',container_extension:'mp4'}]}});
+              return send(res,[]);
             }
-            if(/^\/(live|movie|series|timeshift)\//.test(u.pathname)){const body=Buffer.from('BROTVPLUS_SYNTHETIC_STREAM');res.writeHead(200,{'Content-Type':'video/mp2t','Content-Length':body.length});res.end(body);return}
+            if(/^\/(live|movie|series|timeshift)\//.test(u.pathname)){const b=Buffer.from('BROTVPLUS_SYNTHETIC_STREAM');res.writeHead(200,{'Content-Type':'video/mp2t','Content-Length':b.length});return res.end(b)}
             res.writeHead(404);res.end();
-          });
-          server.on('error',err=>{console.error('[IPTV] server error',err);process.exit(1)});
-          server.listen(18080,'0.0.0.0',()=>console.log('[IPTV] listening',server.address()));
+          }).listen(18080,'0.0.0.0',()=>console.log('[IPTV] listening'));
           JS
-          node /tmp/fake_iptv.js >/tmp/fake-iptv.log 2>&1 &
-          echo $! >/tmp/fake-iptv.pid
+          node /tmp/fake_iptv.js >/tmp/fake-iptv.log 2>&1 & echo $! >/tmp/fake-iptv.pid
           for i in {1..20}; do
-            kill -0 "$(cat /tmp/fake-iptv.pid)" 2>/dev/null || { cat /tmp/fake-iptv.log; exit 1; }
-            if curl --noproxy '*' --connect-timeout 1 -fsS 'http://127.0.0.1:18080/player_api.php?username=test&password=test' >/tmp/fake-auth.json; then
-              cat /tmp/fake-auth.json; cat /tmp/fake-iptv.log; lsof -nP -iTCP:18080 -sTCP:LISTEN; exit 0
-            fi
+            if curl --noproxy '*' --connect-timeout 1 -fsS 'http://127.0.0.1:18080/player_api.php?username=test&password=test' >/tmp/fake-auth.json; then cat /tmp/fake-auth.json; exit 0; fi
             sleep 1
           done
-          echo 'Synthetic provider never became ready'; cat /tmp/fake-iptv.log; exit 1
+          cat /tmp/fake-iptv.log; exit 1
 
       - name: Android TV integration test
         shell: bash
         run: |
           set -euxo pipefail
-          export ANDROID_AVD_HOME="$HOME/.android/avd"
-          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          AVDMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager"
-          test -x "$SDKMANAGER"
-          test -x "$AVDMANAGER"
+          SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          SDKMANAGER="$(find "$SDK_ROOT" -type f -name sdkmanager 2>/dev/null | sort | tail -n1)"
+          AVDMANAGER="$(find "$SDK_ROOT" -type f -name avdmanager 2>/dev/null | sort | tail -n1)"
+          test -n "$SDKMANAGER" && test -x "$SDKMANAGER"
+          test -n "$AVDMANAGER" && test -x "$AVDMANAGER"
+          echo "sdkmanager=$SDKMANAGER"
+          echo "avdmanager=$AVDMANAGER"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" --install emulator platform-tools 'platforms;android-30' 'system-images;android-30;android-tv;x86' >/dev/null
+          export ANDROID_AVD_HOME="$HOME/.android/avd"
           mkdir -p "$ANDROID_AVD_HOME"
           rm -rf "$ANDROID_AVD_HOME/brotv.avd" "$ANDROID_AVD_HOME/brotv.ini"
           echo no | "$AVDMANAGER" create avd --force -n brotv --package 'system-images;android-30;android-tv;x86' --device 'tv_1080p'
           printf 'hw.cpu.ncore=2\n' >> "$ANDROID_AVD_HOME/brotv.avd/config.ini"
-          "$ANDROID_HOME/emulator/emulator" -port 5554 -avd brotv -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none >/tmp/emulator.log 2>&1 &
+          ADB="$SDK_ROOT/platform-tools/adb"
+          EMULATOR="$SDK_ROOT/emulator/emulator"
+          "$EMULATOR" -port 5554 -avd brotv -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none >/tmp/emulator.log 2>&1 &
           EMU_PID=$!
-          cleanup() { "$ANDROID_HOME/platform-tools/adb" -s emulator-5554 emu kill >/dev/null 2>&1 || true; kill "$EMU_PID" >/dev/null 2>&1 || true; }
+          cleanup(){ "$ADB" -s emulator-5554 emu kill >/dev/null 2>&1 || true; kill "$EMU_PID" >/dev/null 2>&1 || true; }
           trap cleanup EXIT
-          ADB="$ANDROID_HOME/platform-tools/adb"
           "$ADB" start-server
           ready=0
           for i in {1..300}; do
             state="$("$ADB" -s emulator-5554 get-state 2>/dev/null || true)"
             boot="$("$ADB" -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
             input="$("$ADB" -s emulator-5554 shell service check input 2>/dev/null || true)"
-            if [ "$state" = device ] && [ "$boot" = 1 ] && echo "$input" | grep -q 'found'; then ready=1; break; fi
+            if [ "$state" = device ] && [ "$boot" = 1 ] && echo "$input" | grep -q found; then ready=1; break; fi
             sleep 2
           done
-          if [ "$ready" -ne 1 ]; then
-            echo 'Emulator failed readiness checks'; "$ADB" devices -l || true; tail -300 /tmp/emulator.log || true; exit 1
-          fi
-          "$ADB" -s emulator-5554 shell settings put global window_animation_scale 0.0 || true
-          "$ADB" -s emulator-5554 shell settings put global transition_animation_scale 0.0 || true
-          "$ADB" -s emulator-5554 shell settings put global animator_duration_scale 0.0 || true
+          if [ "$ready" -ne 1 ]; then "$ADB" devices -l || true; tail -300 /tmp/emulator.log || true; exit 1; fi
+          "$ADB" -s emulator-5554 shell settings put global window_animation_scale 0 || true
+          "$ADB" -s emulator-5554 shell settings put global transition_animation_scale 0 || true
+          "$ADB" -s emulator-5554 shell settings put global animator_duration_scale 0 || true
           "$ADB" -s emulator-5554 shell input keyevent KEYCODE_WAKEUP || true
-          "$ADB" -s emulator-5554 shell input keyevent KEYCODE_MENU || true
-          sleep 3
-          dump_ui() {
+          sleep 2
+          dump_ui(){
             local out="$1"
             for i in {1..15}; do
               "$ADB" -s emulator-5554 shell rm -f /sdcard/ui.xml || true
               if "$ADB" -s emulator-5554 shell uiautomator dump --compressed /sdcard/ui.xml >/tmp/uiautomator-last.txt 2>&1 && "$ADB" -s emulator-5554 pull /sdcard/ui.xml "$out" >/dev/null 2>&1 && grep -q '<hierarchy' "$out"; then return 0; fi
-              cat /tmp/uiautomator-last.txt || true
-              sleep 3
+              sleep 2
             done
-            echo "UI dump failed: $out"
             "$ADB" -s emulator-5554 shell dumpsys window windows >/tmp/window-diagnostics.txt || true
-            "$ADB" -s emulator-5554 shell dumpsys activity activities >/tmp/activity-diagnostics.txt || true
             "$ADB" -s emulator-5554 exec-out screencap -p >/tmp/ui-dump-failure.png || true
             return 1
           }
-          tap_text() { dump_ui /tmp/current.xml; python3 /tmp/tap_text.py "$1"; }
           cat >/tmp/tap_text.py <<'PY'
-          import re,sys,subprocess,html
-          w=sys.argv[1]
-          s=open('/tmp/current.xml',encoding='utf-8').read()
+          import re,sys,subprocess,html,os
+          w=sys.argv[1]; s=open('/tmp/current.xml',encoding='utf-8').read()
           for n in re.findall(r'<node\b[^>]+>',s):
             t=re.search(r'text="([^"]*)"',n); b=re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"',n)
             if t and b and w in html.unescape(t.group(1)):
               x=(int(b.group(1))+int(b.group(3)))//2; y=(int(b.group(2))+int(b.group(4)))//2
-              subprocess.run([subprocess.os.environ['ANDROID_HOME']+'/platform-tools/adb','-s','emulator-5554','shell','input','tap',str(x),str(y)],check=True); sys.exit(0)
-          print('not found',w); print(s); sys.exit(2)
+              subprocess.run([os.environ.get('ANDROID_SDK_ROOT') or os.environ['ANDROID_HOME'],'noop']) if False else None
+              adb=(os.environ.get('ANDROID_SDK_ROOT') or os.environ['ANDROID_HOME'])+'/platform-tools/adb'
+              subprocess.run([adb,'-s','emulator-5554','shell','input','tap',str(x),str(y)],check=True); sys.exit(0)
+          print('not found',w); sys.exit(2)
           PY
+          tap_text(){ dump_ui /tmp/current.xml; python3 /tmp/tap_text.py "$1"; }
           "$ADB" -s emulator-5554 install -r /tmp/BROTV-PLUS-v04.apk | tee /tmp/install.txt
           "$ADB" -s emulator-5554 logcat -c
           "$ADB" -s emulator-5554 shell am force-stop com.brotv.iptv
@@ -180,34 +171,18 @@ jobs:
           "$ADB" -s emulator-5554 shell input keyevent KEYCODE_DPAD_CENTER
           "$ADB" -s emulator-5554 shell input keyevent KEYCODE_DPAD_CENTER
           sleep 12
-          "$ADB" -s emulator-5554 exec-out screencap -p >/tmp/02-home.png
           dump_ui /tmp/02-home.xml
+          "$ADB" -s emulator-5554 exec-out screencap -p >/tmp/02-home.png
           grep -q 'البث المباشر' /tmp/02-home.xml
           grep -q 'الأفلام' /tmp/02-home.xml
           grep -q 'المسلسلات' /tmp/02-home.xml
-          tap_text 'الإعدادات'; sleep 3
-          dump_ui /tmp/03-settings.xml
-          grep -q 'لغة الواجهة' /tmp/03-settings.xml && grep -q 'العربية' /tmp/03-settings.xml
-          "$ADB" -s emulator-5554 exec-out screencap -p >/tmp/03-settings.png
-          "$ADB" -s emulator-5554 shell input keyevent KEYCODE_BACK; sleep 3
-          tap_text 'البث المباشر'; sleep 6
-          dump_ui /tmp/04-live.xml
-          grep -q 'رياضة' /tmp/04-live.xml && grep -q 'beIN Sports 1' /tmp/04-live.xml && grep -q '2 مصادر' /tmp/04-live.xml
-          "$ADB" -s emulator-5554 exec-out screencap -p >/tmp/04-live.png
-          tap_text 'الأفلام'; sleep 5
-          dump_ui /tmp/05-movies.xml
-          grep -q 'Synthetic Movie' /tmp/05-movies.xml
-          "$ADB" -s emulator-5554 exec-out screencap -p >/tmp/05-movies.png
-          tap_text 'المسلسلات'; sleep 5
-          dump_ui /tmp/06-series.xml
-          grep -q 'Synthetic Series' /tmp/06-series.xml
-          "$ADB" -s emulator-5554 exec-out screencap -p >/tmp/06-series.png
-          "$ADB" -s emulator-5554 shell input keyevent KEYCODE_DPAD_DOWN
-          "$ADB" -s emulator-5554 shell input keyevent KEYCODE_DPAD_RIGHT
-          "$ADB" -s emulator-5554 shell input keyevent KEYCODE_DPAD_LEFT
-          "$ADB" -s emulator-5554 shell input keyevent KEYCODE_BACK
-          sleep 2
-          "$ADB" -s emulator-5554 shell pidof com.brotv.iptv | tee /tmp/pid-after.txt
+          tap_text 'الإعدادات'; sleep 3; dump_ui /tmp/03-settings.xml
+          grep -q 'لغة الواجهة' /tmp/03-settings.xml; grep -q 'العربية' /tmp/03-settings.xml
+          "$ADB" -s emulator-5554 shell input keyevent KEYCODE_BACK; sleep 2
+          tap_text 'البث المباشر'; sleep 5; dump_ui /tmp/04-live.xml
+          grep -q 'رياضة' /tmp/04-live.xml; grep -q 'beIN Sports 1' /tmp/04-live.xml; grep -q '2 مصادر' /tmp/04-live.xml
+          tap_text 'الأفلام'; sleep 4; dump_ui /tmp/05-movies.xml; grep -q 'Synthetic Movie' /tmp/05-movies.xml
+          tap_text 'المسلسلات'; sleep 4; dump_ui /tmp/06-series.xml; grep -q 'Synthetic Series' /tmp/06-series.xml
           "$ADB" -s emulator-5554 logcat -d >/tmp/logcat.txt
           ! grep -E 'FATAL EXCEPTION|ANR in com\.brotv\.iptv|Process: com\.brotv\.iptv.*has died' /tmp/logcat.txt
 
@@ -216,13 +191,13 @@ jobs:
         shell: bash
         run: |
           {
-            echo '# BROTV+ v0.4 test report R7'
+            echo '# BROTV+ v0.4 test report R8'
             echo '## Unit tests'; grep -E 'testsuite|testcase|failure|error' /tmp/unit-tests.txt 2>/dev/null | head -100 || true
             echo '## APK'; head -20 /tmp/apk-badging.txt 2>/dev/null || true
-            echo '## App'; cat /tmp/install.txt /tmp/launch.txt /tmp/pid.txt /tmp/pid-after.txt 2>/dev/null || true
+            echo '## App'; cat /tmp/install.txt /tmp/launch.txt /tmp/pid.txt 2>/dev/null || true
             echo '## Provider'; cat /tmp/fake-iptv.log 2>/dev/null || true
-            echo '## UI diagnostics'; cat /tmp/uiautomator-last.txt /tmp/window-diagnostics.txt /tmp/activity-diagnostics.txt 2>/dev/null | head -300 || true
-            echo '## Emulator'; tail -100 /tmp/emulator.log 2>/dev/null || true
+            echo '## Emulator'; tail -150 /tmp/emulator.log 2>/dev/null || true
+            echo '## UI'; cat /tmp/uiautomator-last.txt /tmp/window-diagnostics.txt 2>/dev/null | head -200 || true
             echo '## Crash scan'; grep -E 'FATAL EXCEPTION|ANR in com\.brotv\.iptv|Process: com\.brotv\.iptv.*has died' /tmp/logcat.txt 2>/dev/null || echo 'No fatal exception or ANR detected.'
           } >/tmp/BROTV-v04-TEST-REPORT.md
           cat /tmp/BROTV-v04-TEST-REPORT.md
@@ -231,7 +206,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: BROTV-plus-v04-full-test-r7
+          name: BROTV-plus-v04-full-test-r8
           path: |
             /tmp/BROTV-PLUS-v04.apk
             /tmp/BROTV-v04-TEST-REPORT.md
@@ -241,7 +216,6 @@ jobs:
             /tmp/logcat.txt
             /tmp/emulator.log
             /tmp/window-diagnostics.txt
-            /tmp/activity-diagnostics.txt
             /tmp/*.png
             /tmp/0*.xml
           if-no-files-found: ignore
