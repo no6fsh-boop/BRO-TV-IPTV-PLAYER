@@ -27,6 +27,7 @@ jobs:
           unzip -q /tmp/brotv.zip -d /tmp/project
           PROJECT_DIR="$(find /tmp/project -maxdepth 2 -name settings.gradle.kts -printf '%h\n' | head -n1)"
           test -n "$PROJECT_DIR"
+          sed -i 's/import androidx.compose.ui.CompositionLocalProvider/import androidx.compose.runtime.CompositionLocalProvider/' "$PROJECT_DIR/app/src/main/java/com/brotv/iptv/ui/screens/home/HomeScreen.kt"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: Set up Java 17
