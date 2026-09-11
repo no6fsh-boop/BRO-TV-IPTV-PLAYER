@@ -1,4 +1,4 @@
-name: BROTV+ v0.4 full Android TV test R8
+name: BROTV+ v0.4 full Android TV test R9
 
 on:
   workflow_dispatch:
@@ -96,8 +96,8 @@ jobs:
         run: |
           set -euxo pipefail
           SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
-          SDKMANAGER="$(find "$SDK_ROOT" -type f -name sdkmanager 2>/dev/null | sort | tail -n1)"
-          AVDMANAGER="$(find "$SDK_ROOT" -type f -name avdmanager 2>/dev/null | sort | tail -n1)"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort -V | tail -n1)"
+          AVDMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name avdmanager 2>/dev/null | sort -V | tail -n1)"
           test -n "$SDKMANAGER" && test -x "$SDKMANAGER"
           test -n "$AVDMANAGER" && test -x "$AVDMANAGER"
           echo "sdkmanager=$SDKMANAGER"
@@ -148,7 +148,6 @@ jobs:
             t=re.search(r'text="([^"]*)"',n); b=re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"',n)
             if t and b and w in html.unescape(t.group(1)):
               x=(int(b.group(1))+int(b.group(3)))//2; y=(int(b.group(2))+int(b.group(4)))//2
-              subprocess.run([os.environ.get('ANDROID_SDK_ROOT') or os.environ['ANDROID_HOME'],'noop']) if False else None
               adb=(os.environ.get('ANDROID_SDK_ROOT') or os.environ['ANDROID_HOME'])+'/platform-tools/adb'
               subprocess.run([adb,'-s','emulator-5554','shell','input','tap',str(x),str(y)],check=True); sys.exit(0)
           print('not found',w); sys.exit(2)
@@ -191,7 +190,7 @@ jobs:
         shell: bash
         run: |
           {
-            echo '# BROTV+ v0.4 test report R8'
+            echo '# BROTV+ v0.4 test report R9'
             echo '## Unit tests'; grep -E 'testsuite|testcase|failure|error' /tmp/unit-tests.txt 2>/dev/null | head -100 || true
             echo '## APK'; head -20 /tmp/apk-badging.txt 2>/dev/null || true
             echo '## App'; cat /tmp/install.txt /tmp/launch.txt /tmp/pid.txt 2>/dev/null || true
@@ -206,7 +205,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: BROTV-plus-v04-full-test-r8
+          name: BROTV-plus-v04-full-test-r9
           path: |
             /tmp/BROTV-PLUS-v04.apk
             /tmp/BROTV-v04-TEST-REPORT.md
