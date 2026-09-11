@@ -49,9 +49,18 @@ jobs:
           gradle-version: '8.7'
 
       - name: Build debug APK
+        shell: bash
         run: |
           cd "$PROJECT_DIR"
-          gradle :app:assembleDebug --stacktrace
+          set +e
+          gradle :app:assembleDebug --console=plain 2>&1 | tee /tmp/build.log
+          STATUS=${PIPESTATUS[0]}
+          if [ "$STATUS" -ne 0 ]; then
+            echo "========== COMPILE ERRORS =========="
+            grep -E '(^e: |error:|Unresolved reference|Cannot find|Type mismatch|None of the following|Conflicting overloads|Expecting|Compilation error|Execution failed for task)' /tmp/build.log | tail -n 160 || true
+            echo "========== END COMPILE ERRORS =========="
+          fi
+          exit "$STATUS"
 
       - name: Prepare APK
         run: |
