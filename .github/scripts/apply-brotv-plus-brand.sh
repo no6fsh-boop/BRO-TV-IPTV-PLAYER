@@ -12,22 +12,6 @@ convert -size 640x360 xc:'#05080e' /tmp/brotv-plus-logo.png -resize 520x173 -gra
 cp "$RES/drawable-nodpi/brotv_plus_icon.png" /tmp/BRO-PLUS-TV-icon.png
 cp "$RES/drawable-nodpi/brotv_plus_logo.png" /tmp/BRO-PLUS-TV-logo.png
 
-# Force the legacy drawable name used by the Compose UI to render the approved BRO PLUS TV logo.
-cat > "$RES/drawable/brotv_logo_gold.xml" <<'XML'
-<?xml version="1.0" encoding="utf-8"?>
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@drawable/brotv_plus_logo" />
-</layer-list>
-XML
-
-# Keep the legacy TV banner drawable name aligned too, in case any TV surface references it directly.
-cat > "$RES/drawable/tv_banner.xml" <<'XML'
-<?xml version="1.0" encoding="utf-8"?>
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@drawable/brotv_plus_banner" />
-</layer-list>
-XML
-
 python3 - <<'PY'
 from pathlib import Path
 import re, os
@@ -45,12 +29,16 @@ for attr,val in [('android:icon','@drawable/brotv_plus_icon'),('android:banner',
 s=s[:app.start()]+tag+s[app.end():]
 manifest.write_text(s)
 
-# Rename visible brand text everywhere without touching package ids.
+# Point Compose and XML callers directly at the PNG resource. Compose painterResource
+# supports raster assets directly but rejects arbitrary layer-list drawable XML.
 for p in (root/'app/src/main').rglob('*'):
     if p.suffix.lower() not in {'.kt','.xml','.java'}: continue
     try: t=p.read_text()
     except: continue
-    nt=t.replace('BROTV+','BRO PLUS TV').replace('BROTV +','BRO PLUS TV')
+    nt=(t.replace('R.drawable.brotv_logo_gold','R.drawable.brotv_plus_logo')
+          .replace('@drawable/brotv_logo_gold','@drawable/brotv_plus_logo')
+          .replace('BROTV+','BRO PLUS TV')
+          .replace('BROTV +','BRO PLUS TV'))
     if nt!=t: p.write_text(nt)
 PY
 
@@ -70,8 +58,8 @@ while IFS= read -r -d '' f; do
   esac
 done < <(find "$RES" -type f \( -iname '*.png' -o -iname '*.webp' -o -iname '*.jpg' -o -iname '*.jpeg' \) -print0)
 
-grep -q '@drawable/brotv_plus_logo' "$RES/drawable/brotv_logo_gold.xml"
-grep -q '@drawable/brotv_plus_banner' "$RES/drawable/tv_banner.xml"
+grep -Rqs 'R.drawable.brotv_plus_logo\|@drawable/brotv_plus_logo' "$PROJECT_DIR/app/src/main"
+! grep -Rqs 'R.drawable.brotv_logo_gold\|@drawable/brotv_logo_gold' "$PROJECT_DIR/app/src/main" || { echo 'legacy logo reference remains'; exit 1; }
 
 echo '=== BRAND FILES ==='
 find "$RES" -type f | grep -Ei 'logo|brand|wordmark|banner|launcher|icon' | sort || true
