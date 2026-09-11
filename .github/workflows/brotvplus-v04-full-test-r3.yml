@@ -1,4 +1,4 @@
-name: BRO PLUS TV brand verification R14
+name: BRO PLUS TV brand verification R15
 
 on:
   workflow_dispatch:
@@ -77,10 +77,9 @@ jobs:
           "$AAPT" dump badging /tmp/BRO-PLUS-TV-v04.apk | tee /tmp/apk-badging.txt
           grep -q "package: name='com.brotv.iptv'" /tmp/apk-badging.txt
           grep -q "application-label:'BRO PLUS TV'" /tmp/apk-badging.txt
+          grep -q "application: label='BRO PLUS TV' icon='res/drawable-nodpi-v4/brotv_plus_icon.png' banner='res/drawable-nodpi-v4/brotv_plus_banner.png'" /tmp/apk-badging.txt
           grep -q 'leanback-launchable-activity' /tmp/apk-badging.txt
           "$AAPT" dump xmltree /tmp/BRO-PLUS-TV-v04.apk AndroidManifest.xml | tee /tmp/manifest-tree.txt
-          grep -q 'brotv_plus_icon' /tmp/manifest-tree.txt
-          grep -q 'brotv_plus_banner' /tmp/manifest-tree.txt
 
       - name: Android TV visual brand test
         shell: bash
@@ -133,9 +132,9 @@ jobs:
         shell: bash
         run: |
           {
-            echo '# BRO PLUS TV brand verification R14'
+            echo '# BRO PLUS TV brand verification R15'
             echo '## APK metadata'; cat /tmp/apk-badging.txt 2>/dev/null || true
-            echo '## Manifest branding'; grep -E 'brotv_plus_(icon|banner)|BRO PLUS TV' /tmp/manifest-tree.txt 2>/dev/null || true
+            echo '## Manifest branding'; grep -E 'BRO PLUS TV|android:(icon|banner)' /tmp/manifest-tree.txt 2>/dev/null || true
             echo '## Source branding'; cat /tmp/brand-scan.txt 2>/dev/null || true
             echo '## Install/launch'; cat /tmp/install.txt /tmp/launch.txt /tmp/pid.txt 2>/dev/null || true
             echo '## Crash scan'; grep -E 'FATAL EXCEPTION|ANR in com\.brotv\.iptv' /tmp/logcat.txt 2>/dev/null || echo 'No fatal exception or ANR detected.'
@@ -146,7 +145,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: BRO-PLUS-TV-v04-R14
+          name: BRO-PLUS-TV-v04-R15
           path: |
             /tmp/BRO-PLUS-TV-v04.apk
             /tmp/BRO-PLUS-TV-BRAND-REPORT.md
