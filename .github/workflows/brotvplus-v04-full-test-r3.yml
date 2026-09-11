@@ -1,4 +1,4 @@
-name: BRO PLUS TV brand verification R16
+name: BRO PLUS TV brand verification R17
 
 on:
   workflow_dispatch:
@@ -118,6 +118,11 @@ jobs:
           "$ADB" -s emulator-5554 shell input keyevent KEYCODE_HOME
           sleep 6
           "$ADB" -s emulator-5554 exec-out screencap -p > /tmp/00-outside-tv-home.png
+          "$ADB" -s emulator-5554 shell input keyevent KEYCODE_DPAD_LEFT
+          sleep 1
+          "$ADB" -s emulator-5554 shell input keyevent KEYCODE_DPAD_CENTER
+          sleep 5
+          "$ADB" -s emulator-5554 exec-out screencap -p > /tmp/00-outside-apps.png || true
           "$ADB" -s emulator-5554 shell monkey -p com.brotv.iptv -c android.intent.category.LEANBACK_LAUNCHER 1 | tee /tmp/launch.txt
           sleep 8
           ( "$ADB" -s emulator-5554 shell pidof com.brotv.iptv || true ) | tee /tmp/pid.txt
@@ -134,7 +139,7 @@ jobs:
         shell: bash
         run: |
           {
-            echo '# BRO PLUS TV brand verification R16'
+            echo '# BRO PLUS TV brand verification R17'
             echo '## APK metadata'; cat /tmp/apk-badging.txt 2>/dev/null || true
             echo '## Manifest branding'; grep -E 'BRO PLUS TV|android:(icon|banner)' /tmp/manifest-tree.txt 2>/dev/null || true
             echo '## Source branding'; cat /tmp/brand-scan.txt 2>/dev/null || true
@@ -147,13 +152,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: BRO-PLUS-TV-v04-R16
+          name: BRO-PLUS-TV-v04-R17
           path: |
             /tmp/BRO-PLUS-TV-v04.apk
             /tmp/BRO-PLUS-TV-BRAND-REPORT.md
             /tmp/BRO-PLUS-TV-icon.png
             /tmp/BRO-PLUS-TV-logo.png
             /tmp/00-outside-tv-home.png
+            /tmp/00-outside-apps.png
             /tmp/01-inside-login.png
             /tmp/01-inside-login.xml
             /tmp/apk-badging.txt
