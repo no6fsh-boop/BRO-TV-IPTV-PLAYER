@@ -1,0 +1,215 @@
+name: BROTV+ v0.4 full Android TV test R3
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/brotvplus-v04-full-test-r3.yml'
+
+jobs:
+  full-test:
+    runs-on: macos-15-intel
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reconstruct and verify source
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64, glob, hashlib, pathlib
+          parts=sorted(glob.glob('.github/brotvplus-v04/part*.b64'))
+          assert len(parts)==9, parts
+          raw=base64.b64decode(''.join(pathlib.Path(p).read_text() for p in parts))
+          pathlib.Path('/tmp/BROTV-v04.zip').write_bytes(raw)
+          digest=hashlib.sha256(raw).hexdigest()
+          print(digest)
+          assert digest=='a2a3cc0f3d0f59f697fd7508521746ca8e7d28ee34c73b230efa3a1066ff0488', digest
+          PY
+          rm -rf /tmp/project && mkdir /tmp/project
+          unzip -q /tmp/BROTV-v04.zip -d /tmp/project
+          test -f /tmp/project/settings.gradle.kts
+          echo 'PROJECT_DIR=/tmp/project' >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Unit tests and build
+        shell: bash
+        run: |
+          cd "$PROJECT_DIR"
+          gradle :app:testDebugUnitTest :app:assembleDebug --console=plain
+          cp app/build/outputs/apk/debug/app-debug.apk /tmp/BROTV-PLUS-v04.apk
+          find app/build/test-results/testDebugUnitTest -name '*.xml' -print -exec cat {} \; > /tmp/unit-tests.txt
+
+      - name: Verify TV APK metadata
+        shell: bash
+        run: |
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n1)"
+          "$AAPT" dump badging /tmp/BROTV-PLUS-v04.apk | tee /tmp/apk-badging.txt
+          grep -q "application-label:'BROTV+'" /tmp/apk-badging.txt
+          grep -q "versionName='0.4.0-brotvplus'" /tmp/apk-badging.txt
+          grep -q "sdkVersion:'23'" /tmp/apk-badging.txt
+          grep -q "targetSdkVersion:'34'" /tmp/apk-badging.txt
+          grep -q 'leanback-launchable-activity' /tmp/apk-badging.txt
+
+      - name: Start synthetic Xtream provider
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cat >/tmp/fake_iptv.py <<'PY'
+          import json,time
+          from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+          from urllib.parse import urlparse,parse_qs
+          class H(BaseHTTPRequestHandler):
+            def log_message(self,f,*a): print('[IPTV]',f%a,flush=True)
+            def j(self,o):
+              b=json.dumps(o,ensure_ascii=False).encode('utf-8')
+              self.send_response(200); self.send_header('Content-Type','application/json; charset=utf-8'); self.send_header('Content-Length',str(len(b))); self.end_headers(); self.wfile.write(b)
+            def do_GET(self):
+              u=urlparse(self.path); q=parse_qs(u.query); a=q.get('action',[''])[0]
+              if u.path.endswith('/player_api.php') or u.path=='/player_api.php':
+                if not a: return self.j({'user_info':{'auth':1,'status':'Active','exp_date':'1999999999','max_connections':'2'},'server_info':{'url':'10.0.2.2','port':'18080'}})
+                if a=='get_live_categories': return self.j([{'category_id':'1','category_name':'رياضة'},{'category_id':'2','category_name':'نسخ احتياطية'}])
+                if a=='get_live_streams': return self.j([{'stream_id':101,'name':'beIN Sports 1 FHD','category_id':'1','stream_icon':'','epg_channel_id':'bein1','tv_archive':1,'tv_archive_duration':'3'},{'stream_id':102,'name':'beIN Sports 1 HD BACKUP','category_id':'2','stream_icon':'','epg_channel_id':'bein1','tv_archive':1,'tv_archive_duration':'3'},{'stream_id':103,'name':'Sports Test HD','category_id':'1','stream_icon':'','epg_channel_id':'sports-test','tv_archive':0,'tv_archive_duration':'0'}])
+                if a in ('get_simple_data_table','get_short_epg'):
+                  n=int(time.time()); return self.j({'epg_listings':[{'title':'VGVzdCBNYXRjaA==','description':'U3ludGhldGljIEVQRw==','start_timestamp':n-1800,'stop_timestamp':n+1800},{'title':'TmV4dCBNYXRjaA==','description':'TmV4dA==','start_timestamp':n+1800,'stop_timestamp':n+5400}]})
+                if a=='get_vod_categories': return self.j([{'category_id':'10','category_name':'أفلام تجريبية'}])
+                if a=='get_vod_streams': return self.j([{'stream_id':201,'name':'Synthetic Movie','category_id':'10','stream_icon':'','rating':'8.1','year':'2026','genre':'Test','plot':'Synthetic movie','duration':'00:01:00','container_extension':'mp4','added':'1'}])
+                if a=='get_series_categories': return self.j([{'category_id':'20','category_name':'مسلسلات تجريبية'}])
+                if a=='get_series': return self.j([{'series_id':301,'name':'Synthetic Series','category_id':'20','cover':'','rating':'8.5','year':'2026','genre':'Test','plot':'Synthetic series','last_modified':'1'}])
+                if a=='get_series_info': return self.j({'info':{'cover':'','rating':'8.5','year':'2026','genre':'Test','plot':'Synthetic series'},'episodes':{'1':[{'id':401,'episode_num':1,'title':'Episode 1','container_extension':'mp4','info':{'duration':'00:01:00','plot':'Synthetic episode','movie_image':''}}]}})
+                return self.j([])
+              if u.path.startswith(('/live/','/movie/','/series/','/timeshift/')):
+                b=b'BROTVPLUS_SYNTHETIC_STREAM'; self.send_response(200); self.send_header('Content-Type','video/mp2t'); self.send_header('Content-Length',str(len(b))); self.end_headers(); self.wfile.write(b); return
+              self.send_response(404); self.end_headers()
+          class Server(ThreadingHTTPServer): allow_reuse_address=True
+          s=Server(('0.0.0.0',18080),H)
+          print('[IPTV] listening on',s.server_address,flush=True)
+          s.serve_forever()
+          PY
+          python3 -u /tmp/fake_iptv.py >/tmp/fake-iptv.log 2>&1 &
+          echo $! >/tmp/fake-iptv.pid
+          for i in {1..30}; do
+            if ! kill -0 "$(cat /tmp/fake-iptv.pid)" 2>/dev/null; then
+              echo 'Synthetic provider exited unexpectedly'; cat /tmp/fake-iptv.log; exit 1
+            fi
+            if curl --noproxy '*' --connect-timeout 1 -fsS 'http://127.0.0.1:18080/player_api.php?username=test&password=test' >/tmp/fake-auth.json; then
+              cat /tmp/fake-auth.json
+              lsof -nP -iTCP:18080 -sTCP:LISTEN || true
+              exit 0
+            fi
+            sleep 1
+          done
+          echo 'Synthetic provider never became ready'; cat /tmp/fake-iptv.log; lsof -nP -iTCP:18080 || true; exit 1
+
+      - name: Android TV integration test
+        uses: ReactiveCircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: android-tv
+          arch: x86
+          profile: tv_1080p
+          emulator-boot-timeout: 900
+          disable-animations: true
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          script: |
+            set -euxo pipefail
+            adb install -r /tmp/BROTV-PLUS-v04.apk | tee /tmp/install.txt
+            adb logcat -c
+            adb shell am force-stop com.brotv.iptv
+            adb shell monkey -p com.brotv.iptv -c android.intent.category.LEANBACK_LAUNCHER 1 | tee /tmp/launch.txt
+            sleep 4
+            adb shell pidof com.brotv.iptv | tee /tmp/pid.txt
+            adb exec-out screencap -p >/tmp/01-login.png
+            adb shell uiautomator dump /sdcard/ui.xml >/dev/null && adb pull /sdcard/ui.xml /tmp/01-login.xml >/dev/null
+            adb shell input text Synthetic
+            adb shell input keyevent KEYCODE_DPAD_CENTER
+            adb shell input text test
+            adb shell input keyevent KEYCODE_DPAD_CENTER
+            adb shell input text test
+            adb shell input keyevent KEYCODE_DPAD_CENTER
+            adb shell input text '10.0.2.2:18080'
+            adb shell input keyevent KEYCODE_DPAD_CENTER
+            adb shell input keyevent KEYCODE_DPAD_CENTER
+            sleep 7
+            adb exec-out screencap -p >/tmp/02-home.png
+            adb shell uiautomator dump /sdcard/ui.xml >/dev/null && adb pull /sdcard/ui.xml /tmp/02-home.xml >/dev/null
+            grep -q 'البث المباشر' /tmp/02-home.xml
+            grep -q 'الأفلام' /tmp/02-home.xml
+            grep -q 'المسلسلات' /tmp/02-home.xml
+            cat >/tmp/tap_text.py <<'PY'
+            import re,sys,subprocess,html
+            w=sys.argv[1]
+            subprocess.run('adb shell uiautomator dump /sdcard/ui.xml >/dev/null',shell=True,check=True)
+            subprocess.run('adb pull /sdcard/ui.xml /tmp/current.xml >/dev/null',shell=True,check=True)
+            s=open('/tmp/current.xml',encoding='utf-8').read()
+            for n in re.findall(r'<node\b[^>]+>',s):
+              t=re.search(r'text="([^"]*)"',n); b=re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"',n)
+              if t and b and w in html.unescape(t.group(1)):
+                x=(int(b.group(1))+int(b.group(3)))//2; y=(int(b.group(2))+int(b.group(4)))//2
+                subprocess.run(['adb','shell','input','tap',str(x),str(y)],check=True); sys.exit(0)
+            print('not found',w); print(s); sys.exit(2)
+            PY
+            python3 /tmp/tap_text.py 'الإعدادات'; sleep 2
+            adb shell uiautomator dump /sdcard/ui.xml >/dev/null && adb pull /sdcard/ui.xml /tmp/03-settings.xml >/dev/null
+            grep -q 'لغة الواجهة' /tmp/03-settings.xml && grep -q 'العربية' /tmp/03-settings.xml
+            adb exec-out screencap -p >/tmp/03-settings.png
+            adb shell input keyevent KEYCODE_BACK; sleep 2
+            python3 /tmp/tap_text.py 'البث المباشر'; sleep 5
+            adb shell uiautomator dump /sdcard/ui.xml >/dev/null && adb pull /sdcard/ui.xml /tmp/04-live.xml >/dev/null
+            grep -q 'رياضة' /tmp/04-live.xml && grep -q 'beIN Sports 1' /tmp/04-live.xml && grep -q '2 مصادر' /tmp/04-live.xml
+            adb exec-out screencap -p >/tmp/04-live.png
+            python3 /tmp/tap_text.py 'الأفلام'; sleep 4
+            adb shell uiautomator dump /sdcard/ui.xml >/dev/null && adb pull /sdcard/ui.xml /tmp/05-movies.xml >/dev/null
+            grep -q 'Synthetic Movie' /tmp/05-movies.xml
+            adb exec-out screencap -p >/tmp/05-movies.png
+            python3 /tmp/tap_text.py 'المسلسلات'; sleep 4
+            adb shell uiautomator dump /sdcard/ui.xml >/dev/null && adb pull /sdcard/ui.xml /tmp/06-series.xml >/dev/null
+            grep -q 'Synthetic Series' /tmp/06-series.xml
+            adb exec-out screencap -p >/tmp/06-series.png
+            adb shell input keyevent KEYCODE_DPAD_DOWN
+            adb shell input keyevent KEYCODE_DPAD_RIGHT
+            adb shell input keyevent KEYCODE_DPAD_LEFT
+            adb shell input keyevent KEYCODE_BACK
+            sleep 2
+            adb shell pidof com.brotv.iptv | tee /tmp/pid-after.txt
+            adb logcat -d >/tmp/logcat.txt
+            ! grep -E 'FATAL EXCEPTION|ANR in com\.brotv\.iptv|Process: com\.brotv\.iptv.*has died' /tmp/logcat.txt
+
+      - name: Report
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '# BROTV+ v0.4 test report R3'
+            echo '## Unit tests'; grep -E 'testsuite|testcase|failure|error' /tmp/unit-tests.txt 2>/dev/null | head -100 || true
+            echo '## APK'; head -20 /tmp/apk-badging.txt 2>/dev/null || true
+            echo '## App'; cat /tmp/install.txt /tmp/launch.txt /tmp/pid.txt /tmp/pid-after.txt 2>/dev/null || true
+            echo '## Provider'; cat /tmp/fake-iptv.log 2>/dev/null || true
+            echo '## Crash scan'; grep -E 'FATAL EXCEPTION|ANR in com\.brotv\.iptv|Process: com\.brotv\.iptv.*has died' /tmp/logcat.txt 2>/dev/null || echo 'No fatal exception or ANR detected.'
+          } >/tmp/BROTV-v04-TEST-REPORT.md
+          cat /tmp/BROTV-v04-TEST-REPORT.md
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BROTV-plus-v04-full-test-r3
+          path: |
+            /tmp/BROTV-PLUS-v04.apk
+            /tmp/BROTV-v04-TEST-REPORT.md
+            /tmp/unit-tests.txt
+            /tmp/apk-badging.txt
+            /tmp/fake-iptv.log
+            /tmp/logcat.txt
+            /tmp/*.png
+            /tmp/0*.xml
+          if-no-files-found: ignore
+          retention-days: 14
