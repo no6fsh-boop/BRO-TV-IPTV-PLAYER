@@ -1,4 +1,4 @@
-name: BRO PLUS TV brand verification R15
+name: BRO PLUS TV brand verification R16
 
 on:
   workflow_dispatch:
@@ -120,11 +120,13 @@ jobs:
           "$ADB" -s emulator-5554 exec-out screencap -p > /tmp/00-outside-tv-home.png
           "$ADB" -s emulator-5554 shell monkey -p com.brotv.iptv -c android.intent.category.LEANBACK_LAUNCHER 1 | tee /tmp/launch.txt
           sleep 8
-          "$ADB" -s emulator-5554 shell pidof com.brotv.iptv | tee /tmp/pid.txt
-          "$ADB" -s emulator-5554 exec-out screencap -p > /tmp/01-inside-login.png
+          ( "$ADB" -s emulator-5554 shell pidof com.brotv.iptv || true ) | tee /tmp/pid.txt
+          "$ADB" -s emulator-5554 exec-out screencap -p > /tmp/01-inside-login.png || true
           "$ADB" -s emulator-5554 shell uiautomator dump /sdcard/ui.xml || true
           "$ADB" -s emulator-5554 pull /sdcard/ui.xml /tmp/01-inside-login.xml || true
-          "$ADB" -s emulator-5554 logcat -d > /tmp/logcat.txt
+          "$ADB" -s emulator-5554 logcat -d > /tmp/logcat.txt || true
+          grep -nE 'FATAL EXCEPTION|AndroidRuntime|Resources\$NotFoundException|InflateException|ANR in com\.brotv\.iptv' /tmp/logcat.txt | tail -120 > /tmp/crash-evidence.txt || true
+          test -s /tmp/pid.txt
           ! grep -E 'FATAL EXCEPTION|ANR in com\.brotv\.iptv' /tmp/logcat.txt
 
       - name: Brand verification report
@@ -132,12 +134,12 @@ jobs:
         shell: bash
         run: |
           {
-            echo '# BRO PLUS TV brand verification R15'
+            echo '# BRO PLUS TV brand verification R16'
             echo '## APK metadata'; cat /tmp/apk-badging.txt 2>/dev/null || true
             echo '## Manifest branding'; grep -E 'BRO PLUS TV|android:(icon|banner)' /tmp/manifest-tree.txt 2>/dev/null || true
             echo '## Source branding'; cat /tmp/brand-scan.txt 2>/dev/null || true
             echo '## Install/launch'; cat /tmp/install.txt /tmp/launch.txt /tmp/pid.txt 2>/dev/null || true
-            echo '## Crash scan'; grep -E 'FATAL EXCEPTION|ANR in com\.brotv\.iptv' /tmp/logcat.txt 2>/dev/null || echo 'No fatal exception or ANR detected.'
+            echo '## Crash evidence'; cat /tmp/crash-evidence.txt 2>/dev/null || true
           } > /tmp/BRO-PLUS-TV-BRAND-REPORT.md
           cat /tmp/BRO-PLUS-TV-BRAND-REPORT.md
 
@@ -145,7 +147,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: BRO-PLUS-TV-v04-R15
+          name: BRO-PLUS-TV-v04-R16
           path: |
             /tmp/BRO-PLUS-TV-v04.apk
             /tmp/BRO-PLUS-TV-BRAND-REPORT.md
@@ -159,6 +161,7 @@ jobs:
             /tmp/brand-scan.txt
             /tmp/unit-tests.txt
             /tmp/logcat.txt
+            /tmp/crash-evidence.txt
             /tmp/emulator.log
           if-no-files-found: ignore
           retention-days: 14
