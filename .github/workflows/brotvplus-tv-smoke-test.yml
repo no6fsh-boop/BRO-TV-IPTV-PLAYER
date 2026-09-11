@@ -1,0 +1,166 @@
+name: BROTV+ Android TV smoke test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/brotvplus-tv-smoke-test.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  tv-smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout BROTV+ source branch
+        uses: actions/checkout@v4
+        with:
+          ref: chatgpt-uploaded-program-20260911
+
+      - name: Reconstruct BROTV+ project
+        shell: bash
+        run: |
+          cat .github/build-src-plus/part* > /tmp/brotvplus.zip
+          echo "a8d9b3103998755bcf95aca817e10f8b9342a786d60fe6214a93872fa16f2a5b  /tmp/brotvplus.zip" | sha256sum -c -
+          rm -rf /tmp/project && mkdir /tmp/project
+          unzip -q /tmp/brotvplus.zip -d /tmp/project
+          PROJECT_DIR="$(find /tmp/project -maxdepth 2 -name settings.gradle.kts -printf '%h\n' | head -n1)"
+          test -n "$PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install build + TV emulator packages
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" "emulator" "system-images;android-30;android-tv;x86"
+
+      - name: Set up Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Build debug APK
+        shell: bash
+        run: |
+          cd "$PROJECT_DIR"
+          gradle :app:assembleDebug --console=plain
+          cp app/build/outputs/apk/debug/app-debug.apk /tmp/BROTV-PLUS.apk
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging /tmp/BROTV-PLUS.apk | tee /tmp/aapt-badging.txt
+
+      - name: Create Android TV AVD
+        shell: bash
+        run: |
+          echo no | avdmanager create avd -n brotv_tv -k "system-images;android-30;android-tv;x86" --device "tv_1080p" --force
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm || true; fi
+
+      - name: Boot Android TV emulator
+        shell: bash
+        run: |
+          nohup emulator -avd brotv_tv -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -camera-back none -camera-front none >/tmp/emulator.log 2>&1 &
+          adb wait-for-device
+          BOOTED=""
+          for i in $(seq 1 90); do
+            BOOTED="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')"
+            [ "$BOOTED" = "1" ] && break
+            sleep 2
+          done
+          [ "$BOOTED" = "1" ]
+          adb shell input keyevent 82 || true
+          adb shell wm size
+          adb shell getprop ro.build.version.release
+          adb shell getprop ro.build.characteristics
+
+      - name: Install and launch BROTV+
+        shell: bash
+        run: |
+          set -euo pipefail
+          adb install -r /tmp/BROTV-PLUS.apk | tee /tmp/install.txt
+          adb logcat -c
+          adb shell am force-stop com.brotv.iptv
+          adb shell am start -W -n com.brotv.iptv/.MainActivity | tee /tmp/start.txt
+          sleep 8
+          PID="$(adb shell pidof com.brotv.iptv | tr -d '\r')"
+          test -n "$PID"
+          echo "PID=$PID" | tee /tmp/process.txt
+          adb shell dumpsys activity activities > /tmp/activities-before.txt
+          grep -q 'com.brotv.iptv/.MainActivity' /tmp/activities-before.txt
+          adb shell uiautomator dump /sdcard/brotv-login.xml || true
+          adb pull /sdcard/brotv-login.xml /tmp/brotv-login.xml || true
+          adb exec-out screencap -p > /tmp/brotv-login.png
+
+      - name: Exercise remote keys and QR path
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Exercise TV remote navigation without entering credentials.
+          for key in 20 20 20 20 20 23 4 19 22 21 20 4; do
+            adb shell input keyevent "$key" || true
+            sleep 0.5
+          done
+          sleep 3
+          PID="$(adb shell pidof com.brotv.iptv | tr -d '\r')"
+          test -n "$PID"
+          adb shell dumpsys activity activities > /tmp/activities-after.txt
+          grep -q 'com.brotv.iptv/.MainActivity' /tmp/activities-after.txt
+          adb exec-out screencap -p > /tmp/brotv-after-keys.png
+          adb logcat -d -v time > /tmp/logcat.txt
+          if grep -A20 -B5 -E 'FATAL EXCEPTION|ANR in com\.brotv\.iptv|Process: com\.brotv\.iptv' /tmp/logcat.txt > /tmp/crashes.txt; then
+            echo 'BROTV+ crash/ANR signature found:'
+            cat /tmp/crashes.txt
+            exit 1
+          fi
+          : > /tmp/crashes.txt
+
+      - name: Write smoke test report
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '# BROTV+ Android TV smoke-test'
+            echo
+            echo '## APK metadata'
+            cat /tmp/aapt-badging.txt 2>/dev/null | head -n 8 || true
+            echo
+            echo '## Install'
+            cat /tmp/install.txt 2>/dev/null || true
+            echo
+            echo '## Launch'
+            cat /tmp/start.txt 2>/dev/null || true
+            echo
+            echo '## Process'
+            cat /tmp/process.txt 2>/dev/null || true
+            echo
+            echo '## Emulator'
+            tail -n 80 /tmp/emulator.log 2>/dev/null || true
+            echo
+            echo '## Crash scan'
+            if [ -s /tmp/crashes.txt ]; then cat /tmp/crashes.txt; else echo 'No BROTV+ FATAL EXCEPTION / ANR signature detected.'; fi
+          } > /tmp/SMOKE-TEST-REPORT.txt
+
+      - name: Upload smoke-test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BROTV-plus-tv-smoke-test
+          path: |
+            /tmp/SMOKE-TEST-REPORT.txt
+            /tmp/brotv-login.png
+            /tmp/brotv-after-keys.png
+            /tmp/brotv-login.xml
+            /tmp/logcat.txt
+            /tmp/activities-before.txt
+            /tmp/activities-after.txt
+            /tmp/emulator.log
+          retention-days: 14
+          if-no-files-found: warn
