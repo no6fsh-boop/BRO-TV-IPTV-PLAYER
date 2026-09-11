@@ -1,4 +1,4 @@
-name: BROTV+ v0.4 full Android TV test R9
+name: BROTV+ v0.4 full Android TV test R10
 
 on:
   workflow_dispatch:
@@ -100,8 +100,6 @@ jobs:
           AVDMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name avdmanager 2>/dev/null | sort -V | tail -n1)"
           test -n "$SDKMANAGER" && test -x "$SDKMANAGER"
           test -n "$AVDMANAGER" && test -x "$AVDMANAGER"
-          echo "sdkmanager=$SDKMANAGER"
-          echo "avdmanager=$AVDMANAGER"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" --install emulator platform-tools 'platforms;android-30' 'system-images;android-30;android-tv;x86' >/dev/null
           export ANDROID_AVD_HOME="$HOME/.android/avd"
@@ -159,22 +157,27 @@ jobs:
           "$ADB" -s emulator-5554 shell monkey -p com.brotv.iptv -c android.intent.category.LEANBACK_LAUNCHER 1 | tee /tmp/launch.txt
           sleep 8
           "$ADB" -s emulator-5554 shell pidof com.brotv.iptv | tee /tmp/pid.txt
+          dump_ui /tmp/01-login.xml
           "$ADB" -s emulator-5554 exec-out screencap -p >/tmp/01-login.png
+          grep -q 'اسم القائمة' /tmp/01-login.xml
+          "$ADB" -s emulator-5554 shell input tap 1272 200
           "$ADB" -s emulator-5554 shell input text Synthetic
-          "$ADB" -s emulator-5554 shell input keyevent KEYCODE_DPAD_CENTER
+          "$ADB" -s emulator-5554 shell input tap 1272 356
           "$ADB" -s emulator-5554 shell input text test
-          "$ADB" -s emulator-5554 shell input keyevent KEYCODE_DPAD_CENTER
+          "$ADB" -s emulator-5554 shell input tap 1272 512
           "$ADB" -s emulator-5554 shell input text test
-          "$ADB" -s emulator-5554 shell input keyevent KEYCODE_DPAD_CENTER
+          "$ADB" -s emulator-5554 shell input tap 1272 668
           "$ADB" -s emulator-5554 shell input text '10.0.2.2:18080'
-          "$ADB" -s emulator-5554 shell input keyevent KEYCODE_DPAD_CENTER
-          "$ADB" -s emulator-5554 shell input keyevent KEYCODE_DPAD_CENTER
-          sleep 12
+          dump_ui /tmp/01-filled.xml
+          grep -q 'Synthetic' /tmp/01-filled.xml
+          "$ADB" -s emulator-5554 shell input tap 1272 807
+          sleep 15
           dump_ui /tmp/02-home.xml
           "$ADB" -s emulator-5554 exec-out screencap -p >/tmp/02-home.png
           grep -q 'البث المباشر' /tmp/02-home.xml
           grep -q 'الأفلام' /tmp/02-home.xml
           grep -q 'المسلسلات' /tmp/02-home.xml
+          grep -q 'get_live_categories\|get_live_streams' /tmp/fake-iptv.log
           tap_text 'الإعدادات'; sleep 3; dump_ui /tmp/03-settings.xml
           grep -q 'لغة الواجهة' /tmp/03-settings.xml; grep -q 'العربية' /tmp/03-settings.xml
           "$ADB" -s emulator-5554 shell input keyevent KEYCODE_BACK; sleep 2
@@ -190,7 +193,7 @@ jobs:
         shell: bash
         run: |
           {
-            echo '# BROTV+ v0.4 test report R9'
+            echo '# BROTV+ v0.4 test report R10'
             echo '## Unit tests'; grep -E 'testsuite|testcase|failure|error' /tmp/unit-tests.txt 2>/dev/null | head -100 || true
             echo '## APK'; head -20 /tmp/apk-badging.txt 2>/dev/null || true
             echo '## App'; cat /tmp/install.txt /tmp/launch.txt /tmp/pid.txt 2>/dev/null || true
@@ -205,7 +208,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: BROTV-plus-v04-full-test-r9
+          name: BROTV-plus-v04-full-test-r10
           path: |
             /tmp/BROTV-PLUS-v04.apk
             /tmp/BROTV-v04-TEST-REPORT.md
