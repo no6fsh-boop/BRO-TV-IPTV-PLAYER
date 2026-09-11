@@ -1,4 +1,4 @@
-name: BROTV+ v0.4 full Android TV test R12
+name: BROTV+ v0.4 full Android TV test R13
 
 on:
   workflow_dispatch:
@@ -92,6 +92,12 @@ jobs:
             sleep 1
           done
           cat /tmp/fake-iptv.log; exit 1
+
+      - name: Install Linux emulator runtime dependencies
+        shell: bash
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y libpulse0 libgl1 libnss3 libx11-xcb1 libxcb-cursor0
 
       - name: Android TV integration test
         shell: bash
@@ -248,7 +254,7 @@ jobs:
         shell: bash
         run: |
           {
-            echo '# BROTV+ v0.4 test report R12'
+            echo '# BROTV+ v0.4 test report R13'
             echo '## Unit tests'; grep -E 'testsuite|testcase|failure|error' /tmp/unit-tests.txt 2>/dev/null | head -100 || true
             echo '## APK'; head -20 /tmp/apk-badging.txt 2>/dev/null || true
             echo '## App'; cat /tmp/install.txt /tmp/launch.txt /tmp/pid.txt 2>/dev/null || true
@@ -264,7 +270,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: BROTV-plus-v04-full-test-r12
+          name: BROTV-plus-v04-full-test-r13
           path: |
             /tmp/BROTV-PLUS-v04.apk
             /tmp/BROTV-v04-TEST-REPORT.md
