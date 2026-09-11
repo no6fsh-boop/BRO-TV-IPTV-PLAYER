@@ -1,0 +1,27 @@
+name: Export BROTV+ source
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/export-brotvplus-source.yml'
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source branch
+        uses: actions/checkout@v4
+        with:
+          ref: chatgpt-uploaded-program-20260911
+      - name: Reconstruct source archive
+        shell: bash
+        run: |
+          cat .github/build-src-plus/part* > /tmp/BROTV-plus-source.zip
+          echo "a8d9b3103998755bcf95aca817e10f8b9342a786d60fe6214a93872fa16f2a5b  /tmp/BROTV-plus-source.zip" | sha256sum -c -
+      - name: Upload source archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: BROTV-plus-source
+          path: /tmp/BROTV-plus-source.zip
+          retention-days: 7
