@@ -1,4 +1,4 @@
-name: BROTV+ v0.4 full Android TV test R11
+name: BROTV+ v0.4 full Android TV test R12
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   full-test:
-    runs-on: macos-15-intel
+    runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -53,8 +53,10 @@ jobs:
         run: |
           AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n1)"
           "$AAPT" dump badging /tmp/BROTV-PLUS-v04.apk | tee /tmp/apk-badging.txt
-          grep -q "application-label:'BROTV+'" /tmp/apk-badging.txt
+          grep -q "package: name='com.brotv.iptv'" /tmp/apk-badging.txt
+          grep -q "versionCode='4'" /tmp/apk-badging.txt
           grep -q "versionName='0.4.0-brotvplus'" /tmp/apk-badging.txt
+          grep -q "application-label:'BROTV+'" /tmp/apk-badging.txt
           grep -q "sdkVersion:'23'" /tmp/apk-badging.txt
           grep -q "targetSdkVersion:'34'" /tmp/apk-badging.txt
           grep -q 'leanback-launchable-activity' /tmp/apk-badging.txt
@@ -98,70 +100,75 @@ jobs:
           SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort -V | tail -n1)"
           AVDMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name avdmanager 2>/dev/null | sort -V | tail -n1)"
-          test -n "$SDKMANAGER" && test -x "$SDKMANAGER"
-          test -n "$AVDMANAGER" && test -x "$AVDMANAGER"
+          test -x "$SDKMANAGER"
+          test -x "$AVDMANAGER"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" --install emulator platform-tools 'platforms;android-30' 'system-images;android-30;android-tv;x86' >/dev/null
+
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+          test -r /dev/kvm
+          test -w /dev/kvm
+
           export ANDROID_AVD_HOME="$HOME/.android/avd"
           mkdir -p "$ANDROID_AVD_HOME"
           rm -rf "$ANDROID_AVD_HOME/brotv.avd" "$ANDROID_AVD_HOME/brotv.ini"
           echo no | "$AVDMANAGER" create avd --force -n brotv --package 'system-images;android-30;android-tv;x86' --device 'tv_1080p'
-          printf 'hw.cpu.ncore=2\n' >> "$ANDROID_AVD_HOME/brotv.avd/config.ini"
+          printf 'hw.cpu.ncore=2\nhw.ramSize=2048\n' >> "$ANDROID_AVD_HOME/brotv.avd/config.ini"
+
           ADB="$SDK_ROOT/platform-tools/adb"
           EMULATOR="$SDK_ROOT/emulator/emulator"
-          "$EMULATOR" -port 5554 -avd brotv -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none >/tmp/emulator.log 2>&1 &
+          "$EMULATOR" -version | head -5 | tee /tmp/emulator-version.txt
+          "$ADB" version | tee /tmp/adb-version.txt
+          "$ADB" kill-server || true
+          "$ADB" start-server
+
+          "$EMULATOR" -port 5554 -avd brotv -no-window -no-snapshot -gpu swiftshader_indirect -noaudio -no-boot-anim -accel on -camera-back none -camera-front none >/tmp/emulator.log 2>&1 &
           EMU_PID=$!
           cleanup(){ "$ADB" -s emulator-5554 emu kill >/dev/null 2>&1 || true; kill "$EMU_PID" >/dev/null 2>&1 || true; }
           trap cleanup EXIT
-          "$ADB" start-server
+
           ready=0
+          consecutive=0
           for i in {1..300}; do
             state="$("$ADB" -s emulator-5554 get-state 2>/dev/null || true)"
             boot="$("$ADB" -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
             input="$("$ADB" -s emulator-5554 shell service check input 2>/dev/null || true)"
-            if [ "$state" = device ] && [ "$boot" = 1 ] && echo "$input" | grep -q found; then ready=1; break; fi
+            if [ "$state" = device ] && [ "$boot" = 1 ] && echo "$input" | grep -q found && "$ADB" -s emulator-5554 shell true >/dev/null 2>&1; then
+              consecutive=$((consecutive+1))
+              if [ "$consecutive" -ge 3 ]; then ready=1; break; fi
+            else
+              consecutive=0
+              if [ "$state" = offline ]; then "$ADB" reconnect offline >/dev/null 2>&1 || true; fi
+            fi
             sleep 2
           done
-          if [ "$ready" -ne 1 ]; then "$ADB" devices -l || true; tail -300 /tmp/emulator.log || true; exit 1; fi
-
-          stable=0
-          for cycle in {1..4}; do
-            "$ADB" kill-server || true
-            sleep 2
-            "$ADB" start-server
-            "$ADB" reconnect offline || true
-            sleep 3
-            consecutive=0
-            for i in {1..30}; do
-              state="$("$ADB" -s emulator-5554 get-state 2>/dev/null || true)"
-              boot="$("$ADB" -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
-              if [ "$state" = device ] && [ "$boot" = 1 ] && "$ADB" -s emulator-5554 shell true >/dev/null 2>&1; then
-                consecutive=$((consecutive+1))
-                if [ "$consecutive" -ge 3 ]; then stable=1; break 2; fi
-              else
-                consecutive=0
-              fi
-              sleep 2
-            done
-          done
-          if [ "$stable" -ne 1 ]; then "$ADB" devices -l || true; tail -300 /tmp/emulator.log || true; exit 1; fi
+          if [ "$ready" -ne 1 ]; then
+            "$ADB" devices -l || true
+            cat /tmp/emulator-version.txt /tmp/adb-version.txt 2>/dev/null || true
+            tail -400 /tmp/emulator.log || true
+            exit 1
+          fi
 
           "$ADB" -s emulator-5554 shell settings put global window_animation_scale 0 || true
           "$ADB" -s emulator-5554 shell settings put global transition_animation_scale 0 || true
           "$ADB" -s emulator-5554 shell settings put global animator_duration_scale 0 || true
           "$ADB" -s emulator-5554 shell input keyevent KEYCODE_WAKEUP || true
           sleep 2
+
           dump_ui(){
             local out="$1"
             for i in {1..15}; do
               "$ADB" -s emulator-5554 shell rm -f /sdcard/ui.xml || true
-              if "$ADB" -s emulator-5554 shell uiautomator dump --compressed /sdcard/ui.xml >/tmp/uiautomator-last.txt 2>&1 && "$ADB" -s emulator-5554 pull /sdcard/ui.xml "$out" >/dev/null 2>&1 && grep -q '<hierarchy' "$out"; then return 0; fi
+              if "$ADB" -s emulator-5554 shell uiautomator dump --compressed /sdcard/ui.xml >/tmp/uiautomator-last.txt 2>&1 &&
+                 "$ADB" -s emulator-5554 pull /sdcard/ui.xml "$out" >/dev/null 2>&1 &&
+                 grep -q '<hierarchy' "$out"; then return 0; fi
               sleep 2
             done
             "$ADB" -s emulator-5554 shell dumpsys window windows >/tmp/window-diagnostics.txt || true
             "$ADB" -s emulator-5554 exec-out screencap -p >/tmp/ui-dump-failure.png || true
             return 1
           }
+
           cat >/tmp/tap_text.py <<'PY'
           import re,sys,subprocess,html,os
           w=sys.argv[1]; s=open('/tmp/current.xml',encoding='utf-8').read()
@@ -175,21 +182,17 @@ jobs:
           PY
           tap_text(){ dump_ui /tmp/current.xml; python3 /tmp/tap_text.py "$1"; }
 
-          install_ok=0
-          for attempt in {1..4}; do
-            if "$ADB" -s emulator-5554 install -r /tmp/BROTV-PLUS-v04.apk | tee /tmp/install.txt; then install_ok=1; break; fi
-            "$ADB" reconnect offline || true
-            sleep 4
-          done
-          test "$install_ok" -eq 1
+          "$ADB" -s emulator-5554 install -r /tmp/BROTV-PLUS-v04.apk | tee /tmp/install.txt
           "$ADB" -s emulator-5554 logcat -c
           "$ADB" -s emulator-5554 shell am force-stop com.brotv.iptv
           "$ADB" -s emulator-5554 shell monkey -p com.brotv.iptv -c android.intent.category.LEANBACK_LAUNCHER 1 | tee /tmp/launch.txt
           sleep 8
           "$ADB" -s emulator-5554 shell pidof com.brotv.iptv | tee /tmp/pid.txt
+
           dump_ui /tmp/01-login.xml
           "$ADB" -s emulator-5554 exec-out screencap -p >/tmp/01-login.png
           grep -q 'اسم القائمة' /tmp/01-login.xml
+
           "$ADB" -s emulator-5554 shell input tap 1272 200
           "$ADB" -s emulator-5554 shell input text Synthetic
           "$ADB" -s emulator-5554 shell input tap 1272 356
@@ -198,23 +201,45 @@ jobs:
           "$ADB" -s emulator-5554 shell input text test
           "$ADB" -s emulator-5554 shell input tap 1272 668
           "$ADB" -s emulator-5554 shell input text '10.0.2.2:18080'
+          "$ADB" -s emulator-5554 shell input keyevent KEYCODE_BACK || true
           dump_ui /tmp/01-filled.xml
+          "$ADB" -s emulator-5554 exec-out screencap -p >/tmp/01-filled.png
           grep -q 'Synthetic' /tmp/01-filled.xml
           "$ADB" -s emulator-5554 shell input tap 1272 807
-          sleep 15
-          dump_ui /tmp/02-home.xml
-          "$ADB" -s emulator-5554 exec-out screencap -p >/tmp/02-home.png
-          grep -q 'البث المباشر' /tmp/02-home.xml
+
+          home=0
+          for i in {1..30}; do
+            if dump_ui /tmp/02-home.xml && grep -q 'البث المباشر' /tmp/02-home.xml; then home=1; break; fi
+            sleep 2
+          done
+          "$ADB" -s emulator-5554 exec-out screencap -p >/tmp/02-home.png || true
+          test "$home" -eq 1
           grep -q 'الأفلام' /tmp/02-home.xml
           grep -q 'المسلسلات' /tmp/02-home.xml
           grep -q 'get_live_categories\|get_live_streams' /tmp/fake-iptv.log
+
           tap_text 'الإعدادات'; sleep 3; dump_ui /tmp/03-settings.xml
-          grep -q 'لغة الواجهة' /tmp/03-settings.xml; grep -q 'العربية' /tmp/03-settings.xml
+          "$ADB" -s emulator-5554 exec-out screencap -p >/tmp/03-settings.png
+          grep -q 'لغة الواجهة' /tmp/03-settings.xml
+          grep -q 'العربية' /tmp/03-settings.xml
           "$ADB" -s emulator-5554 shell input keyevent KEYCODE_BACK; sleep 2
+
           tap_text 'البث المباشر'; sleep 5; dump_ui /tmp/04-live.xml
-          grep -q 'رياضة' /tmp/04-live.xml; grep -q 'beIN Sports 1' /tmp/04-live.xml; grep -q '2 مصادر' /tmp/04-live.xml
-          tap_text 'الأفلام'; sleep 4; dump_ui /tmp/05-movies.xml; grep -q 'Synthetic Movie' /tmp/05-movies.xml
-          tap_text 'المسلسلات'; sleep 4; dump_ui /tmp/06-series.xml; grep -q 'Synthetic Series' /tmp/06-series.xml
+          "$ADB" -s emulator-5554 exec-out screencap -p >/tmp/04-live.png
+          grep -q 'رياضة' /tmp/04-live.xml
+          grep -q 'beIN Sports 1' /tmp/04-live.xml
+          grep -q '2 مصادر' /tmp/04-live.xml
+
+          "$ADB" -s emulator-5554 shell input keyevent KEYCODE_BACK || true; sleep 2
+          tap_text 'الأفلام'; sleep 4; dump_ui /tmp/05-movies.xml
+          "$ADB" -s emulator-5554 exec-out screencap -p >/tmp/05-movies.png
+          grep -q 'Synthetic Movie' /tmp/05-movies.xml
+
+          "$ADB" -s emulator-5554 shell input keyevent KEYCODE_BACK || true; sleep 2
+          tap_text 'المسلسلات'; sleep 4; dump_ui /tmp/06-series.xml
+          "$ADB" -s emulator-5554 exec-out screencap -p >/tmp/06-series.png
+          grep -q 'Synthetic Series' /tmp/06-series.xml
+
           "$ADB" -s emulator-5554 logcat -d >/tmp/logcat.txt
           ! grep -E 'FATAL EXCEPTION|ANR in com\.brotv\.iptv|Process: com\.brotv\.iptv.*has died' /tmp/logcat.txt
 
@@ -223,12 +248,13 @@ jobs:
         shell: bash
         run: |
           {
-            echo '# BROTV+ v0.4 test report R11'
+            echo '# BROTV+ v0.4 test report R12'
             echo '## Unit tests'; grep -E 'testsuite|testcase|failure|error' /tmp/unit-tests.txt 2>/dev/null | head -100 || true
             echo '## APK'; head -20 /tmp/apk-badging.txt 2>/dev/null || true
             echo '## App'; cat /tmp/install.txt /tmp/launch.txt /tmp/pid.txt 2>/dev/null || true
             echo '## Provider'; cat /tmp/fake-iptv.log 2>/dev/null || true
-            echo '## Emulator'; tail -150 /tmp/emulator.log 2>/dev/null || true
+            echo '## Emulator versions'; cat /tmp/emulator-version.txt /tmp/adb-version.txt 2>/dev/null || true
+            echo '## Emulator'; tail -200 /tmp/emulator.log 2>/dev/null || true
             echo '## UI'; cat /tmp/uiautomator-last.txt /tmp/window-diagnostics.txt 2>/dev/null | head -200 || true
             echo '## Crash scan'; grep -E 'FATAL EXCEPTION|ANR in com\.brotv\.iptv|Process: com\.brotv\.iptv.*has died' /tmp/logcat.txt 2>/dev/null || echo 'No fatal exception or ANR detected.'
           } >/tmp/BROTV-v04-TEST-REPORT.md
@@ -238,7 +264,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: BROTV-plus-v04-full-test-r11
+          name: BROTV-plus-v04-full-test-r12
           path: |
             /tmp/BROTV-PLUS-v04.apk
             /tmp/BROTV-v04-TEST-REPORT.md
@@ -247,6 +273,8 @@ jobs:
             /tmp/fake-iptv.log
             /tmp/logcat.txt
             /tmp/emulator.log
+            /tmp/emulator-version.txt
+            /tmp/adb-version.txt
             /tmp/window-diagnostics.txt
             /tmp/*.png
             /tmp/0*.xml
