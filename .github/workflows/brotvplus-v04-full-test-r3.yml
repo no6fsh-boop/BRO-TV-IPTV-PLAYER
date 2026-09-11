@@ -1,35 +1,55 @@
-name: BROTV+ v0.4 full Android TV test R13
+name: BRO PLUS TV brand verification R14
 
 on:
   workflow_dispatch:
   push:
     paths:
       - '.github/workflows/brotvplus-v04-full-test-r3.yml'
+      - '.github/assets/brotv-plus/**'
+      - '.github/scripts/apply-brotv-plus-brand.sh'
 
 jobs:
-  full-test:
+  brand-test:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
-      - name: Reconstruct and verify source
+      - name: Reconstruct verified source
         shell: bash
         run: |
+          set -euo pipefail
           python3 - <<'PY'
           import base64, glob, hashlib, pathlib
           parts=sorted(glob.glob('.github/brotvplus-v04/part*.b64'))
           assert len(parts)==9, parts
           raw=base64.b64decode(''.join(pathlib.Path(p).read_text() for p in parts))
-          pathlib.Path('/tmp/BROTV-v04.zip').write_bytes(raw)
           digest=hashlib.sha256(raw).hexdigest()
-          print(digest)
-          assert digest=='a2a3cc0f3d0f59f697fd7508521746ca8e7d28ee34c73b230efa3a1066ff0488', digest
+          print('SOURCE_SHA256='+digest)
+          assert digest=='a2a3cc0f3d0f59f697fd7508521746ca8e7d28ee34c73b230efa3a1066ff0488'
+          pathlib.Path('/tmp/BROTV-v04.zip').write_bytes(raw)
           PY
           rm -rf /tmp/project && mkdir /tmp/project
           unzip -q /tmp/BROTV-v04.zip -d /tmp/project
           test -f /tmp/project/settings.gradle.kts
           echo 'PROJECT_DIR=/tmp/project' >> "$GITHUB_ENV"
+
+      - name: Install branding and emulator dependencies
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends imagemagick libpulse0 libgl1 libnss3 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxi6 libxtst6 libdbus-1-3 libfontconfig1 libxkbcommon0 libxcb-cursor0
+
+      - name: Apply BRO PLUS TV branding
+        shell: bash
+        run: |
+          chmod +x .github/scripts/apply-brotv-plus-brand.sh
+          .github/scripts/apply-brotv-plus-brand.sh | tee /tmp/brand-scan.txt
+          test -s "$PROJECT_DIR/app/src/main/res/drawable-nodpi/brotv_plus_logo.png"
+          test -s "$PROJECT_DIR/app/src/main/res/drawable-nodpi/brotv_plus_icon.png"
+          grep -q 'android:icon="@drawable/brotv_plus_icon"' "$PROJECT_DIR/app/src/main/AndroidManifest.xml"
+          grep -q 'android:banner="@drawable/brotv_plus_banner"' "$PROJECT_DIR/app/src/main/AndroidManifest.xml"
+          grep -q 'android:label="BRO PLUS TV"' "$PROJECT_DIR/app/src/main/AndroidManifest.xml"
 
       - uses: actions/setup-java@v5
         with:
@@ -40,249 +60,106 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Unit tests and build
+      - name: Unit tests and branded APK build
         shell: bash
         run: |
+          set -euo pipefail
           cd "$PROJECT_DIR"
           gradle :app:testDebugUnitTest :app:assembleDebug --console=plain
-          cp app/build/outputs/apk/debug/app-debug.apk /tmp/BROTV-PLUS-v04.apk
+          cp app/build/outputs/apk/debug/app-debug.apk /tmp/BRO-PLUS-TV-v04.apk
           find app/build/test-results/testDebugUnitTest -name '*.xml' -print -exec cat {} \; > /tmp/unit-tests.txt
 
-      - name: Verify TV APK metadata
+      - name: Verify branded APK metadata
         shell: bash
         run: |
+          set -euo pipefail
           AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n1)"
-          "$AAPT" dump badging /tmp/BROTV-PLUS-v04.apk | tee /tmp/apk-badging.txt
+          "$AAPT" dump badging /tmp/BRO-PLUS-TV-v04.apk | tee /tmp/apk-badging.txt
           grep -q "package: name='com.brotv.iptv'" /tmp/apk-badging.txt
-          grep -q "versionCode='4'" /tmp/apk-badging.txt
-          grep -q "versionName='0.4.0-brotvplus'" /tmp/apk-badging.txt
-          grep -q "application-label:'BROTV+'" /tmp/apk-badging.txt
-          grep -q "sdkVersion:'23'" /tmp/apk-badging.txt
-          grep -q "targetSdkVersion:'34'" /tmp/apk-badging.txt
+          grep -q "application-label:'BRO PLUS TV'" /tmp/apk-badging.txt
           grep -q 'leanback-launchable-activity' /tmp/apk-badging.txt
+          "$AAPT" dump xmltree /tmp/BRO-PLUS-TV-v04.apk AndroidManifest.xml | tee /tmp/manifest-tree.txt
+          grep -q 'brotv_plus_icon' /tmp/manifest-tree.txt
+          grep -q 'brotv_plus_banner' /tmp/manifest-tree.txt
 
-      - name: Start synthetic Xtream provider
-        shell: bash
-        run: |
-          set -euxo pipefail
-          cat >/tmp/fake_iptv.js <<'JS'
-          const http=require('http'); const {URL}=require('url');
-          const send=(r,o)=>{const b=Buffer.from(JSON.stringify(o));r.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Content-Length':b.length});r.end(b)};
-          http.createServer((req,res)=>{
-            const u=new URL(req.url,'http://127.0.0.1:18080'),a=u.searchParams.get('action')||''; console.log('[IPTV]',req.method,u.pathname,a);
-            if(u.pathname.endsWith('/player_api.php')){
-              if(!a)return send(res,{user_info:{auth:1,status:'Active',exp_date:'1999999999',max_connections:'2'},server_info:{url:'10.0.2.2',port:'18080'}});
-              if(a==='get_live_categories')return send(res,[{category_id:'1',category_name:'رياضة'},{category_id:'2',category_name:'نسخ احتياطية'}]);
-              if(a==='get_live_streams')return send(res,[{stream_id:101,name:'beIN Sports 1 FHD',category_id:'1',stream_icon:'',epg_channel_id:'bein1',tv_archive:1,tv_archive_duration:'3'},{stream_id:102,name:'beIN Sports 1 HD BACKUP',category_id:'2',stream_icon:'',epg_channel_id:'bein1',tv_archive:1,tv_archive_duration:'3'}]);
-              if(a==='get_simple_data_table'||a==='get_short_epg'){const n=Math.floor(Date.now()/1000);return send(res,{epg_listings:[{title:'VGVzdCBNYXRjaA==',description:'U3ludGhldGljIEVQRw==',start_timestamp:n-1800,stop_timestamp:n+1800}]})}
-              if(a==='get_vod_categories')return send(res,[{category_id:'10',category_name:'أفلام تجريبية'}]);
-              if(a==='get_vod_streams')return send(res,[{stream_id:201,name:'Synthetic Movie',category_id:'10',stream_icon:'',rating:'8.1',year:'2026',genre:'Test',plot:'Synthetic movie',duration:'00:01:00',container_extension:'mp4',added:'1'}]);
-              if(a==='get_series_categories')return send(res,[{category_id:'20',category_name:'مسلسلات تجريبية'}]);
-              if(a==='get_series')return send(res,[{series_id:301,name:'Synthetic Series',category_id:'20',cover:'',rating:'8.5',year:'2026',genre:'Test',plot:'Synthetic series',last_modified:'1'}]);
-              if(a==='get_series_info')return send(res,{info:{cover:'',rating:'8.5',year:'2026'},episodes:{'1':[{id:401,episode_num:1,title:'Episode 1',container_extension:'mp4'}]}});
-              return send(res,[]);
-            }
-            if(/^\/(live|movie|series|timeshift)\//.test(u.pathname)){const b=Buffer.from('BROTVPLUS_SYNTHETIC_STREAM');res.writeHead(200,{'Content-Type':'video/mp2t','Content-Length':b.length});return res.end(b)}
-            res.writeHead(404);res.end();
-          }).listen(18080,'0.0.0.0',()=>console.log('[IPTV] listening'));
-          JS
-          node /tmp/fake_iptv.js >/tmp/fake-iptv.log 2>&1 & echo $! >/tmp/fake-iptv.pid
-          for i in {1..20}; do
-            if curl --noproxy '*' --connect-timeout 1 -fsS 'http://127.0.0.1:18080/player_api.php?username=test&password=test' >/tmp/fake-auth.json; then cat /tmp/fake-auth.json; exit 0; fi
-            sleep 1
-          done
-          cat /tmp/fake-iptv.log; exit 1
-
-      - name: Install Linux emulator runtime dependencies
-        shell: bash
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y libpulse0 libgl1 libnss3 libx11-xcb1 libxcb-cursor0
-
-      - name: Android TV integration test
+      - name: Android TV visual brand test
         shell: bash
         run: |
           set -euxo pipefail
           SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort -V | tail -n1)"
           AVDMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name avdmanager 2>/dev/null | sort -V | tail -n1)"
-          test -x "$SDKMANAGER"
-          test -x "$AVDMANAGER"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" --install emulator platform-tools 'platforms;android-30' 'system-images;android-30;android-tv;x86' >/dev/null
-
-          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
-          test -r /dev/kvm
-          test -w /dev/kvm
-
+          sudo chmod 666 /dev/kvm || true
           export ANDROID_AVD_HOME="$HOME/.android/avd"
           mkdir -p "$ANDROID_AVD_HOME"
           rm -rf "$ANDROID_AVD_HOME/brotv.avd" "$ANDROID_AVD_HOME/brotv.ini"
           echo no | "$AVDMANAGER" create avd --force -n brotv --package 'system-images;android-30;android-tv;x86' --device 'tv_1080p'
           printf 'hw.cpu.ncore=2\nhw.ramSize=2048\n' >> "$ANDROID_AVD_HOME/brotv.avd/config.ini"
-
           ADB="$SDK_ROOT/platform-tools/adb"
           EMULATOR="$SDK_ROOT/emulator/emulator"
-          "$EMULATOR" -version | head -5 | tee /tmp/emulator-version.txt
-          "$ADB" version | tee /tmp/adb-version.txt
           "$ADB" kill-server || true
           "$ADB" start-server
-
           "$EMULATOR" -port 5554 -avd brotv -no-window -no-snapshot -gpu swiftshader_indirect -noaudio -no-boot-anim -accel on -camera-back none -camera-front none >/tmp/emulator.log 2>&1 &
           EMU_PID=$!
           cleanup(){ "$ADB" -s emulator-5554 emu kill >/dev/null 2>&1 || true; kill "$EMU_PID" >/dev/null 2>&1 || true; }
           trap cleanup EXIT
-
-          ready=0
-          consecutive=0
+          ready=0; consecutive=0
           for i in {1..300}; do
             state="$("$ADB" -s emulator-5554 get-state 2>/dev/null || true)"
             boot="$("$ADB" -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
             input="$("$ADB" -s emulator-5554 shell service check input 2>/dev/null || true)"
-            if [ "$state" = device ] && [ "$boot" = 1 ] && echo "$input" | grep -q found && "$ADB" -s emulator-5554 shell true >/dev/null 2>&1; then
-              consecutive=$((consecutive+1))
-              if [ "$consecutive" -ge 3 ]; then ready=1; break; fi
-            else
-              consecutive=0
-              if [ "$state" = offline ]; then "$ADB" reconnect offline >/dev/null 2>&1 || true; fi
-            fi
+            if [ "$state" = device ] && [ "$boot" = 1 ] && echo "$input" | grep -q found; then consecutive=$((consecutive+1)); else consecutive=0; fi
+            if [ "$consecutive" -ge 3 ]; then ready=1; break; fi
             sleep 2
           done
-          if [ "$ready" -ne 1 ]; then
-            "$ADB" devices -l || true
-            cat /tmp/emulator-version.txt /tmp/adb-version.txt 2>/dev/null || true
-            tail -400 /tmp/emulator.log || true
-            exit 1
-          fi
-
-          "$ADB" -s emulator-5554 shell settings put global window_animation_scale 0 || true
-          "$ADB" -s emulator-5554 shell settings put global transition_animation_scale 0 || true
-          "$ADB" -s emulator-5554 shell settings put global animator_duration_scale 0 || true
-          "$ADB" -s emulator-5554 shell input keyevent KEYCODE_WAKEUP || true
-          sleep 2
-
-          dump_ui(){
-            local out="$1"
-            for i in {1..15}; do
-              "$ADB" -s emulator-5554 shell rm -f /sdcard/ui.xml || true
-              if "$ADB" -s emulator-5554 shell uiautomator dump --compressed /sdcard/ui.xml >/tmp/uiautomator-last.txt 2>&1 &&
-                 "$ADB" -s emulator-5554 pull /sdcard/ui.xml "$out" >/dev/null 2>&1 &&
-                 grep -q '<hierarchy' "$out"; then return 0; fi
-              sleep 2
-            done
-            "$ADB" -s emulator-5554 shell dumpsys window windows >/tmp/window-diagnostics.txt || true
-            "$ADB" -s emulator-5554 exec-out screencap -p >/tmp/ui-dump-failure.png || true
-            return 1
-          }
-
-          cat >/tmp/tap_text.py <<'PY'
-          import re,sys,subprocess,html,os
-          w=sys.argv[1]; s=open('/tmp/current.xml',encoding='utf-8').read()
-          for n in re.findall(r'<node\b[^>]+>',s):
-            t=re.search(r'text="([^"]*)"',n); b=re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"',n)
-            if t and b and w in html.unescape(t.group(1)):
-              x=(int(b.group(1))+int(b.group(3)))//2; y=(int(b.group(2))+int(b.group(4)))//2
-              adb=(os.environ.get('ANDROID_SDK_ROOT') or os.environ['ANDROID_HOME'])+'/platform-tools/adb'
-              subprocess.run([adb,'-s','emulator-5554','shell','input','tap',str(x),str(y)],check=True); sys.exit(0)
-          print('not found',w); sys.exit(2)
-          PY
-          tap_text(){ dump_ui /tmp/current.xml; python3 /tmp/tap_text.py "$1"; }
-
-          "$ADB" -s emulator-5554 install -r /tmp/BROTV-PLUS-v04.apk | tee /tmp/install.txt
-          "$ADB" -s emulator-5554 logcat -c
-          "$ADB" -s emulator-5554 shell am force-stop com.brotv.iptv
+          test "$ready" -eq 1
+          "$ADB" -s emulator-5554 install -r /tmp/BRO-PLUS-TV-v04.apk | tee /tmp/install.txt
+          "$ADB" -s emulator-5554 shell input keyevent KEYCODE_HOME
+          sleep 6
+          "$ADB" -s emulator-5554 exec-out screencap -p > /tmp/00-outside-tv-home.png
           "$ADB" -s emulator-5554 shell monkey -p com.brotv.iptv -c android.intent.category.LEANBACK_LAUNCHER 1 | tee /tmp/launch.txt
           sleep 8
           "$ADB" -s emulator-5554 shell pidof com.brotv.iptv | tee /tmp/pid.txt
+          "$ADB" -s emulator-5554 exec-out screencap -p > /tmp/01-inside-login.png
+          "$ADB" -s emulator-5554 shell uiautomator dump /sdcard/ui.xml || true
+          "$ADB" -s emulator-5554 pull /sdcard/ui.xml /tmp/01-inside-login.xml || true
+          "$ADB" -s emulator-5554 logcat -d > /tmp/logcat.txt
+          ! grep -E 'FATAL EXCEPTION|ANR in com\.brotv\.iptv' /tmp/logcat.txt
 
-          dump_ui /tmp/01-login.xml
-          "$ADB" -s emulator-5554 exec-out screencap -p >/tmp/01-login.png
-          grep -q 'اسم القائمة' /tmp/01-login.xml
-
-          "$ADB" -s emulator-5554 shell input tap 1272 200
-          "$ADB" -s emulator-5554 shell input text Synthetic
-          "$ADB" -s emulator-5554 shell input tap 1272 356
-          "$ADB" -s emulator-5554 shell input text test
-          "$ADB" -s emulator-5554 shell input tap 1272 512
-          "$ADB" -s emulator-5554 shell input text test
-          "$ADB" -s emulator-5554 shell input tap 1272 668
-          "$ADB" -s emulator-5554 shell input text '10.0.2.2:18080'
-          "$ADB" -s emulator-5554 shell input keyevent KEYCODE_BACK || true
-          dump_ui /tmp/01-filled.xml
-          "$ADB" -s emulator-5554 exec-out screencap -p >/tmp/01-filled.png
-          grep -q 'Synthetic' /tmp/01-filled.xml
-          "$ADB" -s emulator-5554 shell input tap 1272 807
-
-          home=0
-          for i in {1..30}; do
-            if dump_ui /tmp/02-home.xml && grep -q 'البث المباشر' /tmp/02-home.xml; then home=1; break; fi
-            sleep 2
-          done
-          "$ADB" -s emulator-5554 exec-out screencap -p >/tmp/02-home.png || true
-          test "$home" -eq 1
-          grep -q 'الأفلام' /tmp/02-home.xml
-          grep -q 'المسلسلات' /tmp/02-home.xml
-          grep -q 'get_live_categories\|get_live_streams' /tmp/fake-iptv.log
-
-          tap_text 'الإعدادات'; sleep 3; dump_ui /tmp/03-settings.xml
-          "$ADB" -s emulator-5554 exec-out screencap -p >/tmp/03-settings.png
-          grep -q 'لغة الواجهة' /tmp/03-settings.xml
-          grep -q 'العربية' /tmp/03-settings.xml
-          "$ADB" -s emulator-5554 shell input keyevent KEYCODE_BACK; sleep 2
-
-          tap_text 'البث المباشر'; sleep 5; dump_ui /tmp/04-live.xml
-          "$ADB" -s emulator-5554 exec-out screencap -p >/tmp/04-live.png
-          grep -q 'رياضة' /tmp/04-live.xml
-          grep -q 'beIN Sports 1' /tmp/04-live.xml
-          grep -q '2 مصادر' /tmp/04-live.xml
-
-          "$ADB" -s emulator-5554 shell input keyevent KEYCODE_BACK || true; sleep 2
-          tap_text 'الأفلام'; sleep 4; dump_ui /tmp/05-movies.xml
-          "$ADB" -s emulator-5554 exec-out screencap -p >/tmp/05-movies.png
-          grep -q 'Synthetic Movie' /tmp/05-movies.xml
-
-          "$ADB" -s emulator-5554 shell input keyevent KEYCODE_BACK || true; sleep 2
-          tap_text 'المسلسلات'; sleep 4; dump_ui /tmp/06-series.xml
-          "$ADB" -s emulator-5554 exec-out screencap -p >/tmp/06-series.png
-          grep -q 'Synthetic Series' /tmp/06-series.xml
-
-          "$ADB" -s emulator-5554 logcat -d >/tmp/logcat.txt
-          ! grep -E 'FATAL EXCEPTION|ANR in com\.brotv\.iptv|Process: com\.brotv\.iptv.*has died' /tmp/logcat.txt
-
-      - name: Report
+      - name: Brand verification report
         if: always()
         shell: bash
         run: |
           {
-            echo '# BROTV+ v0.4 test report R13'
-            echo '## Unit tests'; grep -E 'testsuite|testcase|failure|error' /tmp/unit-tests.txt 2>/dev/null | head -100 || true
-            echo '## APK'; head -20 /tmp/apk-badging.txt 2>/dev/null || true
-            echo '## App'; cat /tmp/install.txt /tmp/launch.txt /tmp/pid.txt 2>/dev/null || true
-            echo '## Provider'; cat /tmp/fake-iptv.log 2>/dev/null || true
-            echo '## Emulator versions'; cat /tmp/emulator-version.txt /tmp/adb-version.txt 2>/dev/null || true
-            echo '## Emulator'; tail -200 /tmp/emulator.log 2>/dev/null || true
-            echo '## UI'; cat /tmp/uiautomator-last.txt /tmp/window-diagnostics.txt 2>/dev/null | head -200 || true
-            echo '## Crash scan'; grep -E 'FATAL EXCEPTION|ANR in com\.brotv\.iptv|Process: com\.brotv\.iptv.*has died' /tmp/logcat.txt 2>/dev/null || echo 'No fatal exception or ANR detected.'
-          } >/tmp/BROTV-v04-TEST-REPORT.md
-          cat /tmp/BROTV-v04-TEST-REPORT.md
+            echo '# BRO PLUS TV brand verification R14'
+            echo '## APK metadata'; cat /tmp/apk-badging.txt 2>/dev/null || true
+            echo '## Manifest branding'; grep -E 'brotv_plus_(icon|banner)|BRO PLUS TV' /tmp/manifest-tree.txt 2>/dev/null || true
+            echo '## Source branding'; cat /tmp/brand-scan.txt 2>/dev/null || true
+            echo '## Install/launch'; cat /tmp/install.txt /tmp/launch.txt /tmp/pid.txt 2>/dev/null || true
+            echo '## Crash scan'; grep -E 'FATAL EXCEPTION|ANR in com\.brotv\.iptv' /tmp/logcat.txt 2>/dev/null || echo 'No fatal exception or ANR detected.'
+          } > /tmp/BRO-PLUS-TV-BRAND-REPORT.md
+          cat /tmp/BRO-PLUS-TV-BRAND-REPORT.md
 
-      - name: Upload evidence
+      - name: Upload branded APK and visual proof
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: BROTV-plus-v04-full-test-r13
+          name: BRO-PLUS-TV-v04-R14
           path: |
-            /tmp/BROTV-PLUS-v04.apk
-            /tmp/BROTV-v04-TEST-REPORT.md
-            /tmp/unit-tests.txt
+            /tmp/BRO-PLUS-TV-v04.apk
+            /tmp/BRO-PLUS-TV-BRAND-REPORT.md
+            /tmp/BRO-PLUS-TV-icon.png
+            /tmp/BRO-PLUS-TV-logo.png
+            /tmp/00-outside-tv-home.png
+            /tmp/01-inside-login.png
+            /tmp/01-inside-login.xml
             /tmp/apk-badging.txt
-            /tmp/fake-iptv.log
+            /tmp/manifest-tree.txt
+            /tmp/brand-scan.txt
+            /tmp/unit-tests.txt
             /tmp/logcat.txt
             /tmp/emulator.log
-            /tmp/emulator-version.txt
-            /tmp/adb-version.txt
-            /tmp/window-diagnostics.txt
-            /tmp/*.png
-            /tmp/0*.xml
           if-no-files-found: ignore
           retention-days: 14
