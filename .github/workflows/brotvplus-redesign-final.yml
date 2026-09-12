@@ -141,6 +141,14 @@ jobs:
       max-parallel: 8
       matrix:
         include:
+          - tag: api27-x86
+            api: 27
+            arch: x86
+            device: tv_1080p
+          - tag: api28-x86
+            api: 28
+            arch: x86
+            device: tv_1080p
           - tag: api29-x86
             api: 29
             arch: x86
@@ -149,29 +157,21 @@ jobs:
             api: 30
             arch: x86
             device: tv_1080p
-          - tag: api30-x64
-            api: 30
-            arch: x86_64
-            device: tv_1080p
-          - tag: api31-x64
+          - tag: api31-x86
             api: 31
-            arch: x86_64
+            arch: x86
             device: tv_1080p
-          - tag: api32-x64
+          - tag: api32-x86
             api: 32
-            arch: x86_64
+            arch: x86
             device: tv_1080p
-          - tag: api33-x64
+          - tag: api33-x86
             api: 33
-            arch: x86_64
+            arch: x86
             device: tv_1080p
-          - tag: api34-x64
+          - tag: api34-x86
             api: 34
-            arch: x86_64
-            device: tv_1080p
-          - tag: api35-x64
-            api: 35
-            arch: x86_64
+            arch: x86
             device: tv_1080p
     steps:
       - uses: actions/download-artifact@v4
@@ -195,12 +195,18 @@ jobs:
           TAG='${{ matrix.tag }}'
           AVD="brotv_${TAG}"
           IMAGE="system-images;android-${{ matrix.api }};android-tv;${{ matrix.arch }}"
-          AVDMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager"
+          AVDMANAGER="$ANDROID_HOME/cmdline-tools/16.0/bin/avdmanager"
           EMULATOR="$ANDROID_HOME/emulator/emulator"
           ADB="$ANDROID_HOME/platform-tools/adb"
+          export ANDROID_AVD_HOME="/tmp/avd-${TAG}"
+          mkdir -p "$ANDROID_AVD_HOME"
+          test -x "$AVDMANAGER"
           test -x "$EMULATOR"
           test -x "$ADB"
           echo no | "$AVDMANAGER" create avd -n "$AVD" -k "$IMAGE" --device '${{ matrix.device }}' --force
+          echo 'AVDs after creation:'
+          "$EMULATOR" -list-avds | tee "/tmp/avd-list-${TAG}.txt"
+          grep -qx "$AVD" "/tmp/avd-list-${TAG}.txt"
           "$ADB" start-server
           ACCEL='off'
           if [ -e /dev/kvm ]; then
@@ -248,6 +254,7 @@ jobs:
         run: |
           set -euo pipefail
           TAG='${{ matrix.tag }}'
+          export ANDROID_AVD_HOME="/tmp/avd-${TAG}"
           ADB="$ANDROID_HOME/platform-tools/adb"
           SERIAL="$(cat /tmp/serial-${TAG}.txt)"
           APK=/tmp/build/BRO-PLUS-TV-FINAL.apk
@@ -304,6 +311,7 @@ jobs:
             /tmp/install-${{ matrix.tag }}.txt
             /tmp/start-${{ matrix.tag }}.txt
             /tmp/wm-${{ matrix.tag }}.txt
+            /tmp/avd-list-${{ matrix.tag }}.txt
           retention-days: 14
           if-no-files-found: warn
 
@@ -318,8 +326,7 @@ jobs:
           path: /tmp/build
       - name: Keep build candidate available while emulator sweep runs
         shell: bash
-        run: |
-          cp /tmp/build/BRO-PLUS-TV-FINAL.apk /tmp/BRO-PLUS-TV-CANDIDATE.apk
+        run: cp /tmp/build/BRO-PLUS-TV-FINAL.apk /tmp/BRO-PLUS-TV-CANDIDATE.apk
       - uses: actions/upload-artifact@v4
         with:
           name: BRO-PLUS-TV-CANDIDATE
