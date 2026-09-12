@@ -15,6 +15,10 @@ $GRADLE_CMD --version
 
 mkdir -p build/tv-smoke/screenshots
 
+# app/build.gradle.kts adds .debug to the debug application id.
+DEBUG_PACKAGE="com.brotv.iptv.debug"
+SCREENSHOT_DEVICE_DIR="/sdcard/Android/data/${DEBUG_PACKAGE}/files/qa-screenshots"
+
 # Run the full Android-TV instrumentation suite. Screenshots are written by
 # FullTvQaTest to the app-specific external files directory while the tested
 # Home, Movies and Series screens are actually visible on the emulator.
@@ -23,7 +27,6 @@ $GRADLE_CMD connectedDebugAndroidTest
 TEST_EXIT=$?
 set -e
 
-SCREENSHOT_DEVICE_DIR="/sdcard/Android/data/com.brotv.iptv/files/qa-screenshots"
 $ADB pull "$SCREENSHOT_DEVICE_DIR/." build/tv-smoke/screenshots/ || true
 ls -lah build/tv-smoke/screenshots || true
 
@@ -39,8 +42,8 @@ APK="app/build/outputs/apk/debug/app-debug.apk"
 
 $ADB logcat -c || true
 $ADB install -r "$APK"
-$ADB shell am force-stop com.brotv.iptv
-$ADB shell monkey -p com.brotv.iptv -c android.intent.category.LEANBACK_LAUNCHER 1
+$ADB shell am force-stop "$DEBUG_PACKAGE"
+$ADB shell monkey -p "$DEBUG_PACKAGE" -c android.intent.category.LEANBACK_LAUNCHER 1
 sleep 8
 
 $ADB shell dumpsys window windows > build/tv-smoke/window.txt || true
@@ -53,8 +56,8 @@ if grep -E "FATAL EXCEPTION|ANR in com\.brotv\.iptv" build/tv-smoke/logcat.txt; 
   exit 4
 fi
 
-if ! $ADB shell pidof com.brotv.iptv >/dev/null 2>&1; then
-  echo "BRO PLUS TV process is not running after launch" >&2
+if ! $ADB shell pidof "$DEBUG_PACKAGE" >/dev/null 2>&1; then
+  echo "BRO PLUS TV debug process is not running after launch" >&2
   exit 5
 fi
 
