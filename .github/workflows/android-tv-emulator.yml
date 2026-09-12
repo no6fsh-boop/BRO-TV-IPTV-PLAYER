@@ -24,8 +24,20 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Build debug APK
-        run: gradle assembleDebug
+      - name: Enable KVM acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+            ls -l /dev/kvm
+          else
+            echo "/dev/kvm is unavailable on this runner"
+          fi
+
+      - name: Build debug APK and test APK
+        run: gradle assembleDebug assembleDebugAndroidTest
 
       - name: Run on Android TV emulator
         uses: reactivecircus/android-emulator-runner@v2
@@ -37,8 +49,7 @@ jobs:
           ram-size: 2048M
           heap-size: 512M
           disable-animations: true
-          disable-linux-hw-accel: true
-          emulator-options: -no-snapshot-load -no-snapshot-save -no-window -gpu software -noaudio -no-boot-anim
+          emulator-options: -no-snapshot-load -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           script: GRADLE_CMD=gradle bash scripts/android_tv_smoke_test.sh
 
       - name: Upload APK and test evidence
@@ -48,5 +59,7 @@ jobs:
           name: bro-plus-tv-android-tv
           path: |
             app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
             app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
             build/tv-smoke/

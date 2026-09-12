@@ -1,5 +1,7 @@
 package com.brotv.iptv.ui.screens.live
 
+import android.os.Handler
+import android.os.Looper
 import android.view.KeyEvent
 import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
@@ -53,6 +55,12 @@ fun LiveTvScreen(
     archiveOnly: Boolean = false,
 ) {
     val scope = rememberCoroutineScope()
+    val playerHandler = remember(player) { Handler(player.applicationLooper) }
+
+    // Media3 requires playback mutations to run on the player application looper.
+    fun runOnPlayerThread(block: () -> Unit) {
+        if (Looper.myLooper() == player.applicationLooper) block() else playerHandler.post(block)
+    }
     val categoryListState = rememberLazyListState(initialFirstVisibleItemIndex = preferences.lastLiveCategoryIndex())
     val channelListState = rememberLazyListState(initialFirstVisibleItemIndex = preferences.lastLiveChannelIndex())
     var categories by remember { mutableStateOf<List<IptvCategory>>(emptyList()) }
@@ -87,7 +95,12 @@ fun LiveTvScreen(
         if (failedSourceUrl != source.streamUrl) { failedSourceUrl = source.streamUrl; recoveryAttempts = 0 }
         preferences.saveLiveSelection(selectedCategory?.id, group.key)
         if (archiveOnly) return
-        player.setMediaItem(MediaItem.fromUri(source.streamUrl)); player.prepare(); player.playWhenReady = true; isCatchupPlayback = false
+        isCatchupPlayback = false
+        runOnPlayerThread {
+            player.setMediaItem(MediaItem.fromUri(source.streamUrl))
+            player.prepare()
+            player.playWhenReady = true
+        }
         sourceNotice = if (rescued) "تم التبديل تلقائيًا إلى مصدر احتياطي" else null
     }
 
@@ -115,8 +128,10 @@ fun LiveTvScreen(
             rescueJob = scope.launch {
                 delay(1_500L * recoveryAttempts)
                 if (currentSource()?.streamUrl == source.streamUrl) {
-                    player.prepare()
-                    player.playWhenReady = true
+                    runOnPlayerThread {
+                        player.prepare()
+                        player.playWhenReady = true
+                    }
                 }
             }
         } else tryNextSource()
@@ -127,12 +142,12 @@ fun LiveTvScreen(
             override fun onPlayerError(error: PlaybackException) = recoverPlayback()
             override fun onPlaybackStateChanged(state: Int) {
                 rescueJob?.cancel()
-                if (state == Player.STATE_BUFFERING && !archiveOnly && !isCatchupPlayback) rescueJob = scope.launch { delay(15_000); if (player.playbackState == Player.STATE_BUFFERING) recoverPlayback() }
+                if (state == Player.STATE_BUFFERING && !archiveOnly && !isCatchupPlayback) rescueJob = scope.launch { delay(15_000); runOnPlayerThread { if (player.playbackState == Player.STATE_BUFFERING) recoverPlayback() } }
                 else if (state == Player.STATE_READY) { recoveryAttempts = 0; sourceNotice = null; val g=selectedGroup; val s=currentSource(); if (g!=null&&s!=null&&!isCatchupPlayback) preferences.savePreferredLiveSource(g.key,s.id) }
             }
         }
-        player.addListener(listener)
-        onDispose { player.removeListener(listener); rescueJob?.cancel() }
+        runOnPlayerThread { player.addListener(listener) }
+        onDispose { runOnPlayerThread { player.removeListener(listener) }; rescueJob?.cancel() }
     }
 
     fun applyCategory(category: IptvCategory, groups: List<SmartChannelGroup> = allGroups, restoreGroupKey: String? = null) {
@@ -232,7 +247,18 @@ fun LiveTvScreen(
                             Spacer(Modifier.height(8.dp)); Text("البرامج المتاحة", color=Color.White)
                             LazyColumn(Modifier.weight(1f), verticalArrangement=Arrangement.spacedBy(6.dp)) {
                                 itemsIndexed(epg, key={_,it->(it.start?:"")+it.title}) { _, entry -> EpgRow(entry) {
-                                    scope.launch { val url=repository.catchupUrl(profile,ch,entry); if(url==null) sourceNotice="المزود لم يرسل رابط أرشيف صالح" else { player.setMediaItem(MediaItem.fromUri(url)); player.prepare(); player.playWhenReady=true; isCatchupPlayback=true; fullscreen=true; overlayVisible=true } }
+                                    scope.launch {
+                                        val url = repository.catchupUrl(profile, ch, entry)
+                                        if (url == null) sourceNotice = "المزود لم يرسل رابط أرشيف صالح"
+                                        else {
+                                            isCatchupPlayback = true; fullscreen = true; overlayVisible = true
+                                            runOnPlayerThread {
+                                                player.setMediaItem(MediaItem.fromUri(url))
+                                                player.prepare()
+                                                player.playWhenReady = true
+                                            }
+                                        }
+                                    }
                                 } }
                             }
                         } else {
