@@ -32,7 +32,7 @@ jobs:
         with:
           api-level: 34
           target: android-tv
-          arch: x86_64
+          arch: x86
           profile: tv_1080p
           ram-size: 2048M
           heap-size: 512M
