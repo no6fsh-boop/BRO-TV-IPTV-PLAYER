@@ -23,6 +23,7 @@ import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
+import okio.Buffer
 import org.junit.After
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -33,12 +34,11 @@ import org.junit.runner.RunWith
 import java.io.File
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicReference
-import okio.Buffer
 
 /**
- * Full Android-TV QA against the real MainActivity and real ExoPlayer.
- * A local Xtream-compatible server provides deterministic categories, posters,
- * live MPEG-TS, movie MP4 and series episode MP4 so CI never depends on a real subscription.
+ * Deterministic Android-TV end-to-end QA against the real MainActivity and ExoPlayer.
+ * The local Xtream-compatible server supports HTTP byte ranges so progressive MP4
+ * playback behaves like a real VOD server and never depends on an external provider.
  */
 @RunWith(AndroidJUnit4::class)
 class FullTvQaTest {
@@ -113,7 +113,7 @@ class FullTvQaTest {
     }
 
     @Test
-    fun live_tv_loads_epg_and_decodes_stream_and_remote_overlay() {
+    fun live_tv_loads_epg_decodes_stream_and_remote_source_menu() {
         compose.onNodeWithText("القنوات").performClick()
         waitForText("QA Live", 8_000)
         compose.onNodeWithText("QA Live").performClick()
@@ -123,10 +123,18 @@ class FullTvQaTest {
         waitForText("الآن: QA Current", 5_000)
         assertTrue(requestedPaths.any { it.startsWith("/live/user/pass/101.ts") })
 
+        // Clicking the already-selected channel enters fullscreen. Wait for the
+        // fullscreen-only source counter before sending the remote OK key so focus
+        // has moved to the fullscreen key handler.
         compose.onAllNodesWithText("QA Live HD")[0].performClick()
-        waitForText("QA Live HD", 3_000)
+        waitForText("المصدر 1/1", 5_000, substring = true)
+        SystemClock.sleep(250)
         device.pressKeyCode(KeyEvent.KEYCODE_DPAD_CENTER)
-        waitForText("اختر الجودة / المصدر", 3_000)
+        waitForText("اختر الجودة / المصدر", 5_000)
+
+        // OK selects the focused source and closes the source menu.
+        device.pressKeyCode(KeyEvent.KEYCODE_DPAD_CENTER)
+        compose.waitUntil(5_000) { !hasText("اختر الجودة / المصدر") }
         device.pressBack()
         SystemClock.sleep(200)
         device.pressBack()
@@ -189,7 +197,7 @@ class FullTvQaTest {
         val readyMs = waitForPlayer("/series/user/pass/401.mp4", 20_000)
 
         device.pressKeyCode(KeyEvent.KEYCODE_DPAD_CENTER)
-        waitForText("حجم الفيديو", 3_000)
+        waitForText("حجم الفيديو", 5_000)
         device.pressBack()
         SystemClock.sleep(200)
         device.pressBack()
@@ -225,7 +233,8 @@ class FullTvQaTest {
     }
 
     private fun captureScreenshot(name: String) {
-        val dir = context.getExternalFilesDir("qa-screenshots") ?: error("External files directory unavailable")
+        val dir = context.getExternalFilesDir("qa-screenshots")
+            ?: error("External files directory unavailable")
         dir.mkdirs()
         val output = File(dir, "$name.png")
         assertTrue("Could not capture $name screenshot", device.takeScreenshot(output))
@@ -282,13 +291,14 @@ class FullTvQaTest {
                 action == "get_series_info" -> json(
                     """{"info":{"cover":"${server.url("/poster.png")}","backdrop_path":["${server.url("/poster.png")}"],"rating":"9.0","year":"2026","genre":"QA","plot":"Series details QA"},"episodes":{"1":[{"id":401,"episode_num":1,"title":"QA Episode 1","container_extension":"mp4","info":{"duration":"00:00:03","plot":"Episode playback QA","movie_image":"${server.url("/poster.png")}"}}]}}"""
                 )
-                url?.encodedPath == "/poster.png" -> binaryAsset(listOf("qa_poster.b64"), "image/png")
+                url?.encodedPath == "/poster.png" -> binaryAsset(request, listOf("qa_poster.b64"), "image/png")
                 url?.encodedPath == "/live/user/pass/101.ts" -> binaryAsset(
+                    request,
                     listOf("qa_live_ts_1.b64", "qa_live_ts_2.b64", "qa_live_ts_3.b64", "qa_live_ts_4.b64", "qa_live_ts_5.b64"),
                     "video/mp2t",
                 )
-                url?.encodedPath == "/movie/user/pass/201.mp4" -> binaryAsset(listOf("qa_media_mp4.b64"), "video/mp4")
-                url?.encodedPath == "/series/user/pass/401.mp4" -> binaryAsset(listOf("qa_media_mp4.b64"), "video/mp4")
+                url?.encodedPath == "/movie/user/pass/201.mp4" -> binaryAsset(request, listOf("qa_media_mp4.b64"), "video/mp4")
+                url?.encodedPath == "/series/user/pass/401.mp4" -> binaryAsset(request, listOf("qa_media_mp4.b64"), "video/mp4")
                 else -> MockResponse().setResponseCode(404).setBody("QA 404: $path")
             }
         }
@@ -298,18 +308,57 @@ class FullTvQaTest {
             .setHeader("Content-Type", "application/json; charset=utf-8")
             .setBody(body)
 
-        private fun binaryAsset(parts: List<String>, contentType: String): MockResponse {
+        private fun binaryAsset(
+            request: RecordedRequest,
+            parts: List<String>,
+            contentType: String,
+        ): MockResponse {
             val encoded = buildString {
                 parts.forEach { name ->
-                    instrumentation.context.assets.open(name).bufferedReader().use { append(it.readText().trim()) }
+                    instrumentation.context.assets.open(name).bufferedReader().use {
+                        append(it.readText().trim())
+                    }
                 }
             }
             val bytes = Base64.decode(encoded, Base64.DEFAULT)
-            return MockResponse()
-                .setResponseCode(200)
+            val range = request.getHeader("Range")?.trim()
+            val base = MockResponse()
                 .setHeader("Content-Type", contentType)
-                .setHeader("Content-Length", bytes.size)
-                .setBody(Buffer().write(bytes))
+                .setHeader("Accept-Ranges", "bytes")
+
+            if (range.isNullOrBlank()) {
+                return base
+                    .setResponseCode(200)
+                    .setHeader("Content-Length", bytes.size)
+                    .setBody(Buffer().write(bytes))
+            }
+
+            val match = Regex("""bytes=(\d+)-(\d*)""").matchEntire(range)
+                ?: return base
+                    .setResponseCode(416)
+                    .setHeader("Content-Range", "bytes */${bytes.size}")
+
+            val start = match.groupValues[1].toLongOrNull() ?: 0L
+            if (start >= bytes.size) {
+                return base
+                    .setResponseCode(416)
+                    .setHeader("Content-Range", "bytes */${bytes.size}")
+            }
+
+            val requestedEnd = match.groupValues[2].toLongOrNull()
+            val end = minOf(requestedEnd ?: (bytes.size - 1L), bytes.size - 1L)
+            if (end < start) {
+                return base
+                    .setResponseCode(416)
+                    .setHeader("Content-Range", "bytes */${bytes.size}")
+            }
+
+            val partial = bytes.copyOfRange(start.toInt(), end.toInt() + 1)
+            return base
+                .setResponseCode(206)
+                .setHeader("Content-Range", "bytes $start-$end/${bytes.size}")
+                .setHeader("Content-Length", partial.size)
+                .setBody(Buffer().write(partial))
         }
     }
 }
