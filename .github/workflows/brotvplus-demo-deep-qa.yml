@@ -9,6 +9,7 @@ on:
       - '.github/scripts/brotv-demo-server.py'
       - '.github/scripts/brotv-ui-evidence.py'
       - '.github/scripts/tests/**'
+      - '.github/tests/**'
 
 jobs:
   deep-qa:
@@ -41,6 +42,20 @@ jobs:
         run: |
           chmod +x .github/scripts/apply-brotv-plus-brand.sh
           .github/scripts/apply-brotv-plus-brand.sh
+      - name: Install instrumented QA coverage
+        run: |
+          mkdir -p "$PROJECT_DIR/app/src/androidTest/java/com/brotv/iptv/qa"
+          cp .github/tests/android/*.kt "$PROJECT_DIR/app/src/androidTest/java/com/brotv/iptv/qa/"
+          cat >> "$PROJECT_DIR/app/build.gradle.kts" <<'EOF'
+
+          android.defaultConfig.testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+          dependencies {
+              androidTestImplementation("androidx.test:runner:1.6.2")
+              androidTestImplementation("androidx.test.ext:junit:1.2.1")
+              androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+              debugImplementation("androidx.compose.ui:ui-test-manifest")
+          }
+          EOF
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -52,7 +67,7 @@ jobs:
       - name: Build demo APK
         run: |
           cd "$PROJECT_DIR"
-          gradle :app:testDebugUnitTest :app:assembleDebug --console=plain
+          gradle :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --console=plain
           cp app/build/outputs/apk/debug/app-debug.apk /tmp/BRO-PLUS-TV-DEEP-QA.apk
       - name: Start demo provider
         run: |
@@ -66,6 +81,7 @@ jobs:
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager 'platform-tools' 'emulator' 'system-images;android-30;android-tv;x86'
       - name: Boot emulator and install app
+        id: emulator
         run: |
           # Software-only emulation produced launch timeouts and an input ANR
           # in round 1. Fail setup explicitly if hardware acceleration is absent.
@@ -76,7 +92,7 @@ jobs:
           mkdir -p "$ANDROID_AVD_HOME"
           echo no | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n brotv_deep -k 'system-images;android-30;android-tv;x86' --device tv_1080p --force
           nohup "$ANDROID_HOME/emulator/emulator" -avd brotv_deep -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader -accel on >/tmp/emulator.log 2>&1 &
-          adb wait-for-device
+          timeout 120s adb wait-for-device
           for i in $(seq 1 150); do [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1 ] && break; sleep 2; done
           test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1
           adb shell input keyevent KEYCODE_WAKEUP || true
@@ -84,7 +100,12 @@ jobs:
           adb shell settings put global stay_on_while_plugged_in 7 || true
           adb shell settings put system screen_off_timeout 2147483647 || true
           adb install -r /tmp/BRO-PLUS-TV-DEEP-QA.apk
+      - name: Run D-pad and persisted history tests
+        run: |
+          cd "$PROJECT_DIR"
+          gradle :app:connectedDebugAndroidTest --console=plain
       - name: Run detailed functional tests
+        if: ${{ !cancelled() && steps.emulator.outcome == 'success' }}
         run: |
           chmod +x .github/scripts/brotv-deep-qa.sh
           .github/scripts/brotv-deep-qa.sh
@@ -97,6 +118,8 @@ jobs:
             /tmp/evidence
             /tmp/demo-server.log
             /tmp/emulator.log
+            /tmp/project/app/build/reports/androidTests
+            /tmp/project/app/build/outputs/androidTest-results
           retention-days: 14
       - name: Upload deep QA APK
         if: always()

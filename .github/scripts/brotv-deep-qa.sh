@@ -152,6 +152,14 @@ for spec in \
       if tap_text "$catname" "$tag-toggle"; then
         prefs "$tag-after"; safe_dump "$tag-after" || true
         if prefs_changed "$tag-before" "$tag-after"; then pass "الإعدادات - $item" "فتح الحوار وتم تغيير فئة مستقلة وحفظها"; else fail "الإعدادات - $item" "الفئة لم تتغير في التخزين"; fi
+        # Leave the demo category visible for the later playback tests.
+        # The old suite hid Saudi channels, then required a Saudi channel.
+        if tap_text "$catname" "$tag-restore"; then
+          prefs "$tag-restored"
+          prefs_changed "$tag-after" "$tag-restored" || fail "$tag cleanup" "Category restoration did not persist"
+        else
+          fail "$tag cleanup" "Could not restore the category before playback tests"
+        fi
       else fail "الإعدادات - $item" "الحوار فتح لكن تعذر تحديد الفئة"; fi
     else fail "الإعدادات - $item" "الحوار لم يعرض فئات المزود"; fi
   else fail "الإعدادات - $item" "تعذر فتح حوار الفئات"; fi
