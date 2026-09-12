@@ -1,0 +1,86 @@
+name: BRO PLUS TV QR login integration
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/brotvplus-qr-integration.yml'
+      - '.github/scripts/apply-brotv-plus-qr-login.sh'
+
+jobs:
+  qr-login:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reconstruct verified source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, glob, hashlib, pathlib
+          parts=sorted(glob.glob('.github/brotvplus-v04/part*.b64'))
+          assert len(parts)==9, parts
+          raw=base64.b64decode(''.join(pathlib.Path(p).read_text() for p in parts))
+          digest=hashlib.sha256(raw).hexdigest()
+          print('SOURCE_SHA256='+digest)
+          assert digest=='a2a3cc0f3d0f59f697fd7508521746ca8e7d28ee34c73b230efa3a1066ff0488'
+          pathlib.Path('/tmp/BROTV-v04.zip').write_bytes(raw)
+          PY
+          rm -rf /tmp/project && mkdir /tmp/project
+          unzip -q /tmp/BROTV-v04.zip -d /tmp/project
+          echo 'PROJECT_DIR=/tmp/project' >> "$GITHUB_ENV"
+
+      - name: Inspect login integration points
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          echo '=== Kotlin/Java files ==='
+          find app/src/main -type f \( -name '*.kt' -o -name '*.java' \) | sort
+          echo '=== Login/auth references ==='
+          grep -RInE 'Login|login|username|password|server|baseUrl|Xtream|authenticate' app/src/main --include='*.kt' --include='*.java' | head -400 || true
+          echo '=== Compose dependencies ==='
+          cat app/build.gradle.kts
+          echo '=== Manifest ==='
+          cat app/src/main/AndroidManifest.xml
+
+      - name: Apply QR login patch if present
+        if: hashFiles('.github/scripts/apply-brotv-plus-qr-login.sh') != ''
+        shell: bash
+        run: |
+          chmod +x .github/scripts/apply-brotv-plus-qr-login.sh
+          .github/scripts/apply-brotv-plus-qr-login.sh
+
+      - name: Apply BRO PLUS TV branding
+        shell: bash
+        run: |
+          chmod +x .github/scripts/apply-brotv-plus-brand.sh
+          .github/scripts/apply-brotv-plus-brand.sh
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Build and unit test
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          gradle :app:testDebugUnitTest :app:assembleDebug --console=plain
+          cp app/build/outputs/apk/debug/app-debug.apk /tmp/BRO-PLUS-TV-QR.apk
+
+      - name: Upload APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BRO-PLUS-TV-QR-login
+          path: /tmp/BRO-PLUS-TV-QR.apk
+          if-no-files-found: ignore
+          retention-days: 14
