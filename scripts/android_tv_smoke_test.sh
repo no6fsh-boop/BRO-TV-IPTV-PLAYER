@@ -13,14 +13,30 @@ fi
 GRADLE_CMD="${GRADLE_CMD:-gradle}"
 $GRADLE_CMD --version
 
-# The workflow already builds app-debug.apk. Run instrumentation tests here
-# without a clean rebuild so the slow software-emulated TV gets maximum test time.
+mkdir -p build/tv-smoke/screenshots
+
+# Run the full Android-TV instrumentation suite. Screenshots are written by
+# FullTvQaTest to the app-specific external files directory while the tested
+# Home, Movies and Series screens are actually visible on the emulator.
+set +e
 $GRADLE_CMD connectedDebugAndroidTest
+TEST_EXIT=$?
+set -e
+
+SCREENSHOT_DEVICE_DIR="/sdcard/Android/data/com.brotv.iptv/files/qa-screenshots"
+$ADB pull "$SCREENSHOT_DEVICE_DIR/." build/tv-smoke/screenshots/ || true
+ls -lah build/tv-smoke/screenshots || true
+
+# Preserve screenshot/test evidence even when an assertion fails. The workflow
+# uploads build/tv-smoke with `if: always()` after this script returns.
+if [[ $TEST_EXIT -ne 0 ]]; then
+  echo "Instrumentation tests failed; emulator screenshots were pulled when available." >&2
+  exit "$TEST_EXIT"
+fi
 
 APK="app/build/outputs/apk/debug/app-debug.apk"
 [[ -f "$APK" ]] || { echo "APK not produced: $APK" >&2; exit 3; }
 
-mkdir -p build/tv-smoke
 $ADB logcat -c || true
 $ADB install -r "$APK"
 $ADB shell am force-stop com.brotv.iptv
@@ -30,7 +46,7 @@ sleep 8
 $ADB shell dumpsys window windows > build/tv-smoke/window.txt || true
 $ADB shell dumpsys activity activities > build/tv-smoke/activity.txt || true
 $ADB logcat -d > build/tv-smoke/logcat.txt || true
-$ADB exec-out screencap -p > build/tv-smoke/home.png || true
+$ADB exec-out screencap -p > build/tv-smoke/final-smoke.png || true
 
 if grep -E "FATAL EXCEPTION|ANR in com\.brotv\.iptv" build/tv-smoke/logcat.txt; then
   echo "Runtime crash/ANR detected" >&2
@@ -42,4 +58,4 @@ if ! $ADB shell pidof com.brotv.iptv >/dev/null 2>&1; then
   exit 5
 fi
 
-echo "Android TV smoke test passed: instrumentation tests completed and app stayed running without detected FATAL EXCEPTION/ANR."
+echo "Android TV QA passed: instrumentation tests completed, screenshots captured, and app stayed running without detected FATAL EXCEPTION/ANR."
