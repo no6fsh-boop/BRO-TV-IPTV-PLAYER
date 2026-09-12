@@ -1,4 +1,4 @@
-name: BRO PLUS TV brand verification R17
+name: BRO PLUS TV brand verification R18
 
 on:
   workflow_dispatch:
@@ -47,6 +47,7 @@ jobs:
           .github/scripts/apply-brotv-plus-brand.sh | tee /tmp/brand-scan.txt
           test -s "$PROJECT_DIR/app/src/main/res/drawable-nodpi/brotv_plus_logo.png"
           test -s "$PROJECT_DIR/app/src/main/res/drawable-nodpi/brotv_plus_icon.png"
+          test -s "$PROJECT_DIR/app/src/main/res/drawable-nodpi/brotv_plus_banner.png"
           grep -q 'android:icon="@drawable/brotv_plus_icon"' "$PROJECT_DIR/app/src/main/AndroidManifest.xml"
           grep -q 'android:banner="@drawable/brotv_plus_banner"' "$PROJECT_DIR/app/src/main/AndroidManifest.xml"
           grep -q 'android:label="BRO PLUS TV"' "$PROJECT_DIR/app/src/main/AndroidManifest.xml"
@@ -139,7 +140,7 @@ jobs:
         shell: bash
         run: |
           {
-            echo '# BRO PLUS TV brand verification R17'
+            echo '# BRO PLUS TV brand verification R18'
             echo '## APK metadata'; cat /tmp/apk-badging.txt 2>/dev/null || true
             echo '## Manifest branding'; grep -E 'BRO PLUS TV|android:(icon|banner)' /tmp/manifest-tree.txt 2>/dev/null || true
             echo '## Source branding'; cat /tmp/brand-scan.txt 2>/dev/null || true
@@ -152,12 +153,13 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: BRO-PLUS-TV-v04-R17
+          name: BRO-PLUS-TV-v04-R18
           path: |
             /tmp/BRO-PLUS-TV-v04.apk
             /tmp/BRO-PLUS-TV-BRAND-REPORT.md
             /tmp/BRO-PLUS-TV-icon.png
             /tmp/BRO-PLUS-TV-logo.png
+            /tmp/BRO-PLUS-TV-banner.png
             /tmp/00-outside-tv-home.png
             /tmp/00-outside-apps.png
             /tmp/01-inside-login.png
