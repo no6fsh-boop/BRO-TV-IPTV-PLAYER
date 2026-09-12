@@ -10,7 +10,7 @@ on:
 jobs:
   android-tv:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -55,6 +55,7 @@ jobs:
           profile: tv_1080p
           ram-size: 2048M
           heap-size: 512M
+          emulator-boot-timeout: 900
           disable-animations: true
           emulator-options: -no-snapshot-load -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           script: GRADLE_CMD=gradle bash scripts/android_tv_smoke_test.sh
