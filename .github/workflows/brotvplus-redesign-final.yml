@@ -1,0 +1,180 @@
+name: BRO PLUS TV redesign final
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/brotvplus-redesign-final.yml'
+      - '.github/scripts/apply-brotv-plus-redesign.sh'
+      - '.github/redesign/**'
+
+jobs:
+  final:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reconstruct verified source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, glob, hashlib, pathlib
+          parts=sorted(glob.glob('.github/brotvplus-v04/part*.b64'))
+          assert len(parts)==9, parts
+          raw=base64.b64decode(''.join(pathlib.Path(p).read_text() for p in parts))
+          digest=hashlib.sha256(raw).hexdigest()
+          print('SOURCE_SHA256='+digest)
+          assert digest=='a2a3cc0f3d0f59f697fd7508521746ca8e7d28ee34c73b230efa3a1066ff0488'
+          pathlib.Path('/tmp/BROTV-v04.zip').write_bytes(raw)
+          PY
+          rm -rf /tmp/project && mkdir /tmp/project
+          unzip -q /tmp/BROTV-v04.zip -d /tmp/project
+          echo 'PROJECT_DIR=/tmp/project' >> "$GITHUB_ENV"
+
+      - name: Apply approved redesign
+        shell: bash
+        run: |
+          chmod +x .github/scripts/apply-brotv-plus-redesign.sh
+          .github/scripts/apply-brotv-plus-redesign.sh
+
+      - name: Install branding dependency
+        shell: bash
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends imagemagick
+
+      - name: Apply BRO PLUS TV branding
+        shell: bash
+        run: |
+          chmod +x .github/scripts/apply-brotv-plus-brand.sh
+          .github/scripts/apply-brotv-plus-brand.sh
+
+      - name: Verify redesign contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          grep -R -q 'enum class LoginMode' app/src/main/java/com/brotv/iptv
+          grep -R -q 'إرسال إلى الشاشة وتسجيل الدخول' app/src/main/java/com/brotv/iptv
+          grep -R -q 'الجودة' app/src/main/java/com/brotv/iptv/ui
+          grep -R -q 'RATIO_16_9' app/src/main/java/com/brotv/iptv/ui
+          grep -R -q 'إخفاء فئات القنوات المباشرة' app/src/main/java/com/brotv/iptv/ui
+          grep -R -q 'forceRefresh' app/src/main/java/com/brotv/iptv
+          grep -R -q 'getSubscriptionDaysLeft' app/src/main/java/com/brotv/iptv
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Unit test and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          gradle :app:testDebugUnitTest :app:assembleDebug --console=plain
+          cp app/build/outputs/apk/debug/app-debug.apk /tmp/BRO-PLUS-TV-FINAL.apk
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging /tmp/BRO-PLUS-TV-FINAL.apk | tee /tmp/aapt.txt
+          sha256sum /tmp/BRO-PLUS-TV-FINAL.apk | tee /tmp/apk-sha256.txt
+
+      - name: Install Android TV emulator image
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platform-tools' 'platforms;android-34' 'build-tools;34.0.0' 'emulator' 'system-images;android-30;android-tv;x86'
+
+      - name: Boot Android TV emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo no | avdmanager create avd -n brotv_final_tv -k 'system-images;android-30;android-tv;x86' --device 'tv_1080p' --force
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm || true; fi
+          nohup emulator -avd brotv_final_tv -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -camera-back none -camera-front none >/tmp/emulator.log 2>&1 &
+          adb wait-for-device
+          BOOTED=''
+          for i in $(seq 1 90); do
+            BOOTED="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')"
+            [ "$BOOTED" = '1' ] && break
+            sleep 2
+          done
+          [ "$BOOTED" = '1' ]
+          adb shell input keyevent 82 || true
+
+      - name: Install launch and remote smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          adb install -r /tmp/BRO-PLUS-TV-FINAL.apk | tee /tmp/install.txt
+          adb logcat -c
+          adb shell am force-stop com.brotv.iptv
+          adb shell am start -W -n com.brotv.iptv/.MainActivity | tee /tmp/start.txt
+          sleep 8
+          PID="$(adb shell pidof com.brotv.iptv | tr -d '\r')"
+          test -n "$PID"
+          adb shell dumpsys activity activities > /tmp/activity-before.txt
+          grep -q 'com.brotv.iptv/.MainActivity' /tmp/activity-before.txt
+          adb exec-out screencap -p > /tmp/login-before.png
+          adb shell uiautomator dump /sdcard/ui-before.xml || true
+          adb pull /sdcard/ui-before.xml /tmp/ui-before.xml || true
+          # D-pad navigation through login tabs/fields/QR surface and back.
+          for key in 22 22 21 20 20 19 23 4 22 21 20 19; do
+            adb shell input keyevent "$key" || true
+            sleep 0.5
+          done
+          sleep 2
+          test -n "$(adb shell pidof com.brotv.iptv | tr -d '\r')"
+          adb exec-out screencap -p > /tmp/login-after.png
+          adb shell uiautomator dump /sdcard/ui-after.xml || true
+          adb pull /sdcard/ui-after.xml /tmp/ui-after.xml || true
+          adb logcat -d -v time > /tmp/logcat.txt
+          if grep -A20 -B5 -E 'FATAL EXCEPTION|ANR in com\.brotv\.iptv|Process: com\.brotv\.iptv' /tmp/logcat.txt > /tmp/crashes.txt; then
+            cat /tmp/crashes.txt
+            exit 1
+          fi
+          : > /tmp/crashes.txt
+
+      - name: Write verification report
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '# BRO PLUS TV final verification'
+            echo
+            echo '## APK SHA256'
+            cat /tmp/apk-sha256.txt 2>/dev/null || true
+            echo
+            echo '## Package metadata'
+            head -n 12 /tmp/aapt.txt 2>/dev/null || true
+            echo
+            echo '## Install'
+            cat /tmp/install.txt 2>/dev/null || true
+            echo
+            echo '## Launch'
+            cat /tmp/start.txt 2>/dev/null || true
+            echo
+            echo '## Crash scan'
+            if [ -s /tmp/crashes.txt ]; then cat /tmp/crashes.txt; else echo 'No BRO PLUS TV FATAL EXCEPTION / ANR signature detected.'; fi
+          } > /tmp/FINAL-VERIFICATION.txt
+
+      - name: Upload APK and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BRO-PLUS-TV-FINAL
+          path: |
+            /tmp/BRO-PLUS-TV-FINAL.apk
+            /tmp/FINAL-VERIFICATION.txt
+            /tmp/login-before.png
+            /tmp/login-after.png
+            /tmp/ui-before.xml
+            /tmp/ui-after.xml
+            /tmp/logcat.txt
+            /tmp/emulator.log
+          retention-days: 14
+          if-no-files-found: warn
