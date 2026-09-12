@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose owns all real UI; this just sets the window background so
+         there's no white flash before the first Compose frame draws. -->
+    <style name="Theme.BroTV" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/background_night</item>
+        <item name="android:colorBackground">@color/background_night</item>
+        <item name="android:statusBarColor">@color/background_night</item>
+        <item name="android:navigationBarColor">@color/background_night</item>
+    </style>
+</resources>

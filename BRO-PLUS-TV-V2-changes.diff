@@ -1,0 +1,457 @@
+diff -ruN /mnt/data/broplus_original/BRO-PLUS-TV-FIXED/app/src/main/java/com/brotv/iptv/data/pairing/PairingServer.kt /mnt/data/broplus_fix/BRO-PLUS-TV-FIXED/app/src/main/java/com/brotv/iptv/data/pairing/PairingServer.kt
+--- /mnt/data/broplus_original/BRO-PLUS-TV-FIXED/app/src/main/java/com/brotv/iptv/data/pairing/PairingServer.kt	2026-09-12 13:39:13.000000000 +0000
++++ /mnt/data/broplus_fix/BRO-PLUS-TV-FIXED/app/src/main/java/com/brotv/iptv/data/pairing/PairingServer.kt	2026-09-12 13:56:12.738577965 +0000
+@@ -10,7 +10,7 @@
+     private val mode: PairingMode,
+     private val onCredentialsReceived: (PlaylistProfile) -> Unit,
+ ) : NanoHTTPD(port) {
+-    private var tokenConsumed = false
++    @Volatile private var tokenConsumed = false
+ 
+     override fun serve(session: IHTTPSession): Response = when {
+         session.method == Method.GET && session.uri == "/pair" -> serveForm(session.parms["token"].orEmpty())
+@@ -25,18 +25,39 @@
+         return newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", formHtml(token))
+     }
+ 
++    @Synchronized
+     private fun handleSubmit(session: IHTTPSession): Response {
+-        if (tokenConsumed || expectedToken.isExpired()) return newFixedLengthResponse(Response.Status.GONE, "text/plain", "expired")
+-        val body = HashMap<String, String>()
+-        session.parseBody(body)
+-        val fields = parseUrlEncoded(body["postData"].orEmpty())
+-        if (fields["token"] != expectedToken.value) return newFixedLengthResponse(Response.Status.FORBIDDEN, "text/plain", "bad token")
++        if (tokenConsumed || expectedToken.isExpired()) {
++            return newFixedLengthResponse(Response.Status.GONE, "text/plain; charset=utf-8", "expired")
++        }
++
++        val fields = runCatching {
++            val body = HashMap<String, String>()
++            session.parseBody(body)
++            parseUrlEncoded(body["postData"].orEmpty())
++        }.getOrElse {
++            return newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain; charset=utf-8", "invalid form")
++        }
++
++        if (fields["token"] != expectedToken.value) {
++            return newFixedLengthResponse(Response.Status.FORBIDDEN, "text/plain; charset=utf-8", "bad token")
++        }
++
+         val profile = PlaylistProfile(
+             listName = fields["listName"].orEmpty().trim(),
+             username = if (mode == PairingMode.XTREAM) fields["username"].orEmpty().trim() else "",
+             password = if (mode == PairingMode.XTREAM) fields["password"].orEmpty() else "",
+             hostUrl = fields["host"].orEmpty().trim(),
+         )
++
++        val valid = profile.listName.isNotBlank() && profile.hostUrl.isNotBlank() &&
++            (mode == PairingMode.M3U || (profile.username.isNotBlank() && profile.password.isNotBlank()))
++        if (!valid) {
++            return newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain; charset=utf-8", "missing required fields")
++        }
++
++        // Consume only after the request is syntactically valid. Provider authentication
++        // happens on the TV; LoginViewModel creates a fresh QR token if it fails.
+         tokenConsumed = true
+         onCredentialsReceived(profile)
+         return newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", SUCCESS_HTML)
+diff -ruN /mnt/data/broplus_original/BRO-PLUS-TV-FIXED/app/src/main/java/com/brotv/iptv/data/pairing/QrPairingManager.kt /mnt/data/broplus_fix/BRO-PLUS-TV-FIXED/app/src/main/java/com/brotv/iptv/data/pairing/QrPairingManager.kt
+--- /mnt/data/broplus_original/BRO-PLUS-TV-FIXED/app/src/main/java/com/brotv/iptv/data/pairing/QrPairingManager.kt	2026-09-12 13:39:13.000000000 +0000
++++ /mnt/data/broplus_fix/BRO-PLUS-TV-FIXED/app/src/main/java/com/brotv/iptv/data/pairing/QrPairingManager.kt	2026-09-12 13:56:12.738132715 +0000
+@@ -11,19 +11,37 @@
+ class QrPairingManager(private val port: Int = 8988) {
+     private var server: PairingServer? = null
+ 
++    @Synchronized
+     fun startSession(mode: PairingMode, onCredentialsReceived: (PlaylistProfile) -> Unit): PairingSession? {
+         stopSession()
+         val localIp = findLocalIpv4Address() ?: return null
+         val token = PairingToken()
+         val pairingUrl = "http://$localIp:$port/pair?token=${token.value}"
+-        server = PairingServer(port, token, mode) { profile -> onCredentialsReceived(profile); stopSession() }.also { it.start(SOCKET_READ_TIMEOUT_MILLIS, false) }
++        val newServer = PairingServer(port, token, mode, onCredentialsReceived)
++        try {
++            newServer.start(SOCKET_READ_TIMEOUT_MILLIS, false)
++            server = newServer
++        } catch (error: Throwable) {
++            runCatching { newServer.stop() }
++            server = null
++            throw error
++        }
+         return PairingSession(token, pairingUrl, generateQrBitmap(pairingUrl), mode)
+     }
+ 
+-    fun stopSession() { server?.stop(); server = null }
++    @Synchronized
++    fun stopSession() {
++        server?.stop()
++        server = null
++    }
+ 
+-    private fun findLocalIpv4Address(): String? = Collections.list(NetworkInterface.getNetworkInterfaces()).flatMap { Collections.list(it.inetAddresses) }
+-        .firstOrNull { !it.isLoopbackAddress && it.hostAddress?.contains(':') == false }?.hostAddress
++    private fun findLocalIpv4Address(): String? {
++        val addresses = Collections.list(NetworkInterface.getNetworkInterfaces())
++            .flatMap { Collections.list(it.inetAddresses) }
++            .filter { !it.isLoopbackAddress && it.hostAddress?.contains(':') == false }
++        // Prefer a private/LAN address over VPN or other routable interfaces.
++        return (addresses.firstOrNull { it.isSiteLocalAddress } ?: addresses.firstOrNull())?.hostAddress
++    }
+ 
+     private fun generateQrBitmap(content: String, size: Int = 512): Bitmap {
+         val matrix = QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, size, size)
+diff -ruN /mnt/data/broplus_original/BRO-PLUS-TV-FIXED/app/src/main/java/com/brotv/iptv/data/remote/IptvRepository.kt /mnt/data/broplus_fix/BRO-PLUS-TV-FIXED/app/src/main/java/com/brotv/iptv/data/remote/IptvRepository.kt
+--- /mnt/data/broplus_original/BRO-PLUS-TV-FIXED/app/src/main/java/com/brotv/iptv/data/remote/IptvRepository.kt	2026-09-12 13:39:13.000000000 +0000
++++ /mnt/data/broplus_fix/BRO-PLUS-TV-FIXED/app/src/main/java/com/brotv/iptv/data/remote/IptvRepository.kt	2026-09-12 13:55:31.049020786 +0000
+@@ -2,6 +2,7 @@
+ 
+ import android.content.Context
+ import android.util.Xml
++import com.brotv.iptv.BuildConfig
+ import com.brotv.iptv.data.local.BroTvDatabase
+ import com.brotv.iptv.data.local.CacheEntry
+ import com.brotv.iptv.data.model.*
+@@ -15,7 +16,7 @@
+ import okhttp3.OkHttpClient
+ import okhttp3.Request
+ import org.xmlpull.v1.XmlPullParser
+-import java.io.StringReader
++import java.io.Reader
+ import java.net.URLEncoder
+ import java.text.SimpleDateFormat
+ import java.util.Locale
+@@ -38,19 +39,23 @@
+     private val listMemoryCache = ConcurrentHashMap<String, String>()
+     private val xmltvCache = mutableMapOf<String, Map<String, List<EpgEntry>>>()
+ 
+-    suspend fun authenticate(profile: PlaylistProfile): Result<Unit> = runCatching {
+-        if (profile.isDemo()) return@runCatching
+-        require(profile.isComplete()) { "بيانات الدخول غير مكتملة" }
+-        if (profile.isM3u()) {
+-            val playlist = loadM3u(profile.hostUrl)
+-            require(playlist.channels.isNotEmpty()) { "القائمة لا تحتوي على قنوات قابلة للقراءة" }
+-        } else {
+-            val root = requestJson(profile, null).asJsonObject
+-            val info = root.getAsJsonObject("user_info") ?: error("استجابة غير صالحة من السيرفر")
+-            val auth = info.int("auth") ?: 0
+-            val status = info.string("status")
+-            require(auth == 1 && (status.isBlank() || status.equals("Active", true))) {
+-                if (status.isNotBlank()) "حالة الاشتراك: $status" else "اسم المستخدم أو كلمة المرور غير صحيحة"
++    suspend fun authenticate(profile: PlaylistProfile): Result<Unit> = withContext(Dispatchers.IO) {
++        runCatching {
++            if (profile.isDemo()) return@runCatching
++            require(profile.isComplete()) { "بيانات الدخول غير مكتملة" }
++            if (profile.isM3u()) {
++                // M3U loading performs blocking OkHttp I/O. Keep the whole authentication
++                // path on Dispatchers.IO so a login can never block the TV UI thread.
++                val playlist = loadM3u(profile.hostUrl)
++                require(playlist.channels.isNotEmpty()) { "القائمة لا تحتوي على قنوات قابلة للقراءة" }
++            } else {
++                val root = requestJsonBlocking(profile, null).asJsonObject
++                val info = root.getAsJsonObject("user_info") ?: error("استجابة غير صالحة من السيرفر")
++                val auth = info.int("auth") ?: 0
++                val status = info.string("status")
++                require(auth == 1 && (status.isBlank() || status.equals("Active", true))) {
++                    if (status.isNotBlank()) "حالة الاشتراك: $status" else "اسم المستخدم أو كلمة المرور غير صحيحة"
++                }
+             }
+         }
+     }
+@@ -266,13 +271,22 @@
+         val playlist = loadM3u(profile.hostUrl)
+         val epgUrl = playlist.xmltvUrl ?: return emptyList()
+         val channelId = channel.epgChannelId?.takeIf { it.isNotBlank() } ?: return emptyList()
+-        val map = xmltvCache[epgUrl] ?: withContext(Dispatchers.IO) { parseXmltv(get(epgUrl)).also { xmltvCache[epgUrl] = it } }
++        val map = xmltvCache[epgUrl] ?: withContext(Dispatchers.IO) { loadXmltv(epgUrl).also { xmltvCache[epgUrl] = it } }
+         return map[channelId].orEmpty().sortedBy { it.startTimestamp ?: Long.MAX_VALUE }
+     }
+ 
+-    private fun parseXmltv(xml: String): Map<String, List<EpgEntry>> {
++    private fun loadXmltv(url: String): Map<String, List<EpgEntry>> {
++        val request = Request.Builder().url(url).header("User-Agent", "BROTV+/0.3").build()
++        client.newCall(request).execute().use { response ->
++            if (!response.isSuccessful) error("HTTP ${response.code}")
++            val body = response.body ?: error("استجابة EPG فارغة")
++            body.charStream().buffered().use { reader -> return parseXmltv(reader) }
++        }
++    }
++
++    private fun parseXmltv(reader: Reader): Map<String, List<EpgEntry>> {
+         val out = linkedMapOf<String, MutableList<EpgEntry>>()
+-        val parser = Xml.newPullParser().apply { setInput(StringReader(xml)) }
++        val parser = Xml.newPullParser().apply { setInput(reader) }
+         var event = parser.eventType
+         var channel: String? = null
+         var start: String? = null
+@@ -338,7 +352,7 @@
+ 
+     private fun loadM3u(url: String): M3uPlaylist {
+         m3uCache[url]?.let { return it }
+-        val lines = get(url).lineSequence().toList()
++
+         val out = mutableListOf<LiveChannel>()
+         var xmltvUrl: String? = null
+         var pendingName = ""
+@@ -348,33 +362,49 @@
+         var pendingCatchup: String? = null
+         var pendingCatchupDays = 0
+         var id = 1
+-        lines.forEachIndexed { index, raw ->
+-            val line = raw.trim()
+-            if (index == 0 && line.startsWith("#EXTM3U", true)) {
+-                xmltvUrl = attr(line, "x-tvg-url") ?: attr(line, "url-tvg")
+-            } else if (line.startsWith("#EXTINF", true)) {
+-                pendingName = line.substringAfterLast(',').trim().ifBlank { "قناة $id" }
+-                pendingLogo = attr(line, "tvg-logo")
+-                pendingEpgId = attr(line, "tvg-id")
+-                pendingGroup = attr(line, "group-title") ?: "القنوات"
+-                pendingCatchup = attr(line, "catchup-source")
+-                pendingCatchupDays = attr(line, "catchup-days")?.toIntOrNull() ?: 0
+-            } else if (line.startsWith("http", true)) {
+-                out += LiveChannel(
+-                    id = id++,
+-                    name = pendingName.ifBlank { "قناة $id" },
+-                    categoryId = pendingGroup,
+-                    icon = pendingLogo,
+-                    epgChannelId = pendingEpgId,
+-                    streamUrl = line,
+-                    tvArchive = !pendingCatchup.isNullOrBlank(),
+-                    archiveDurationDays = pendingCatchupDays,
+-                    catchupSource = pendingCatchup,
+-                    quality = classifyQuality(pendingName),
+-                )
+-                pendingName = ""; pendingLogo = null; pendingEpgId = null; pendingCatchup = null; pendingCatchupDays = 0
++
++        // Parse directly from the response stream instead of body.string().lineSequence().toList().
++        // Large provider playlists can be tens of MB; streaming avoids holding duplicate copies
++        // of the entire M3U file in memory.
++        val request = Request.Builder().url(url).header("User-Agent", "BROTV+/0.3").build()
++        client.newCall(request).execute().use { response ->
++            if (!response.isSuccessful) error("HTTP ${response.code}")
++            val body = response.body ?: error("قائمة M3U فارغة")
++            body.charStream().buffered().use { reader ->
++                var index = 0
++                while (true) {
++                    val raw = reader.readLine() ?: break
++                    val line = raw.trim().trimStart('\uFEFF')
++                    if (index == 0 && line.startsWith("#EXTM3U", true)) {
++                        xmltvUrl = attr(line, "x-tvg-url") ?: attr(line, "url-tvg")
++                    } else if (line.startsWith("#EXTINF", true)) {
++                        pendingName = line.substringAfterLast(',').trim().ifBlank { "قناة $id" }
++                        pendingLogo = attr(line, "tvg-logo")
++                        pendingEpgId = attr(line, "tvg-id")
++                        pendingGroup = attr(line, "group-title") ?: "القنوات"
++                        pendingCatchup = attr(line, "catchup-source")
++                        pendingCatchupDays = attr(line, "catchup-days")?.toIntOrNull() ?: 0
++                    } else if (line.startsWith("http://", true) || line.startsWith("https://", true)) {
++                        val channelId = id++
++                        out += LiveChannel(
++                            id = channelId,
++                            name = pendingName.ifBlank { "قناة $channelId" },
++                            categoryId = pendingGroup,
++                            icon = pendingLogo,
++                            epgChannelId = pendingEpgId,
++                            streamUrl = line,
++                            tvArchive = !pendingCatchup.isNullOrBlank(),
++                            archiveDurationDays = pendingCatchupDays,
++                            catchupSource = pendingCatchup,
++                            quality = classifyQuality(pendingName),
++                        )
++                        pendingName = ""; pendingLogo = null; pendingEpgId = null; pendingCatchup = null; pendingCatchupDays = 0
++                    }
++                    index++
++                }
+             }
+         }
++
+         return M3uPlaylist(out, xmltvUrl).also { m3uCache[url] = it }
+     }
+ 
+@@ -456,7 +486,8 @@
+  * before shipping, so real end users never see these rows in production.
+  */
+ object QaConfig {
+-    const val INCLUDE_DEMO_CONTENT = true // TODO: replace with BuildConfig.DEBUG
++    // Demo rows are useful for QA/debug builds but must never leak into release builds.
++    val INCLUDE_DEMO_CONTENT: Boolean get() = BuildConfig.DEBUG
+ }
+ 
+ const val DEMO_HOST_MARKER = "demo://brotv.local"
+diff -ruN /mnt/data/broplus_original/BRO-PLUS-TV-FIXED/app/src/main/java/com/brotv/iptv/ui/screens/login/LoginScreen.kt /mnt/data/broplus_fix/BRO-PLUS-TV-FIXED/app/src/main/java/com/brotv/iptv/ui/screens/login/LoginScreen.kt
+--- /mnt/data/broplus_original/BRO-PLUS-TV-FIXED/app/src/main/java/com/brotv/iptv/ui/screens/login/LoginScreen.kt	2026-09-12 13:39:13.000000000 +0000
++++ /mnt/data/broplus_fix/BRO-PLUS-TV-FIXED/app/src/main/java/com/brotv/iptv/ui/screens/login/LoginScreen.kt	2026-09-12 13:57:55.087307229 +0000
+@@ -56,8 +56,8 @@
+                 if (qr != null) {
+                     Image(qr.asImageBitmap(), "QR ${viewModel.mode}", Modifier.size(270.dp).background(Color.White, RoundedCornerShape(12.dp)).border(3.dp, BroTvColors.Gold, RoundedCornerShape(12.dp)).padding(8.dp))
+                 } else {
+-                    Box(Modifier.size(270.dp).border(2.dp, BroTvColors.Gold, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+-                        Text("تأكد من اتصال التلفزيون بالشبكة\nثم أعد اختيار نوع الدخول", color = BroTvColors.TextSecondary)
++                    Box(Modifier.size(270.dp).border(2.dp, BroTvColors.Gold, RoundedCornerShape(12.dp)).padding(16.dp), contentAlignment = Alignment.Center) {
++                        Text(viewModel.qrError ?: "جاري تجهيز رمز QR…\nتأكد من اتصال التلفزيون بالشبكة", color = BroTvColors.TextSecondary)
+                     }
+                 }
+                 Spacer(Modifier.height(12.dp))
+@@ -67,8 +67,8 @@
+ 
+             Column(Modifier.weight(1.1f)) {
+                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+-                    ModeTab("Xtream", viewModel.mode == LoginMode.XTREAM, Modifier.weight(1f)) { viewModel.setMode(LoginMode.XTREAM, onLoginSuccess) }
+-                    ModeTab("M3U URL", viewModel.mode == LoginMode.M3U, Modifier.weight(1f)) { viewModel.setMode(LoginMode.M3U, onLoginSuccess) }
++                    ModeTab("Xtream", viewModel.mode == LoginMode.XTREAM, Modifier.weight(1f)) { viewModel.selectMode(LoginMode.XTREAM) }
++                    ModeTab("M3U URL", viewModel.mode == LoginMode.M3U, Modifier.weight(1f)) { viewModel.selectMode(LoginMode.M3U) }
+                 }
+                 Spacer(Modifier.height(14.dp))
+                 LoginFormPanel(viewModel, onLoginSuccess, Modifier.fillMaxWidth())
+diff -ruN /mnt/data/broplus_original/BRO-PLUS-TV-FIXED/app/src/main/java/com/brotv/iptv/ui/screens/login/LoginViewModel.kt /mnt/data/broplus_fix/BRO-PLUS-TV-FIXED/app/src/main/java/com/brotv/iptv/ui/screens/login/LoginViewModel.kt
+--- /mnt/data/broplus_original/BRO-PLUS-TV-FIXED/app/src/main/java/com/brotv/iptv/ui/screens/login/LoginViewModel.kt	2026-09-12 13:39:13.000000000 +0000
++++ /mnt/data/broplus_fix/BRO-PLUS-TV-FIXED/app/src/main/java/com/brotv/iptv/ui/screens/login/LoginViewModel.kt	2026-09-12 13:58:14.403422390 +0000
+@@ -11,6 +11,7 @@
+ import com.brotv.iptv.data.pairing.QrPairingManager
+ import com.brotv.iptv.data.remote.IptvRepository
+ import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.Job
+ import kotlinx.coroutines.launch
+ import kotlinx.coroutines.withContext
+ 
+@@ -29,9 +30,13 @@
+     var hostUrl by mutableStateOf(""); private set
+     var focusedField by mutableStateOf(LoginField.LIST_NAME); private set
+     var qrSession by mutableStateOf<QrPairingManager.PairingSession?>(null); private set
++    var qrError by mutableStateOf<String?>(null); private set
+     var isSubmitting by mutableStateOf(false); private set
+     var loginError by mutableStateOf<String?>(null); private set
+ 
++    private var qrStartJob: Job? = null
++    @Volatile private var qrGeneration = 0L
++
+     init {
+         credentialStore.loadActiveProfile()?.let { profile ->
+             listName = profile.listName; username = profile.username; password = profile.password; hostUrl = profile.hostUrl
+@@ -39,12 +44,15 @@
+         }
+     }
+ 
+-    fun setMode(newMode: LoginMode, onSuccess: () -> Unit) {
+-        if (mode != newMode) {
+-            mode = newMode; focusedField = LoginField.LIST_NAME; loginError = null
+-            if (newMode == LoginMode.M3U) { username = ""; password = "" }
+-        }
+-        startQrSession(onSuccess)
++    fun selectMode(newMode: LoginMode) {
++        if (mode == newMode) return
++        mode = newMode
++        focusedField = LoginField.LIST_NAME
++        loginError = null
++        qrError = null
++        if (newMode == LoginMode.M3U) { username = ""; password = "" }
++        // LoginScreen's LaunchedEffect(mode) is the single owner of restarting QR.
++        // Keeping startup in one place prevents two concurrent NanoHTTPD binds.
+     }
+ 
+     /**
+@@ -68,17 +76,39 @@
+      */
+     fun startQrSession(onSuccess: () -> Unit) {
+         val pairMode = if (mode == LoginMode.XTREAM) PairingMode.XTREAM else PairingMode.M3U
+-        viewModelScope.launch {
+-            val session = withContext(Dispatchers.IO) {
+-                qrPairingManager.startSession(pairMode) { profile ->
+-                    viewModelScope.launch {
+-                        listName = profile.listName; username = profile.username; password = profile.password; hostUrl = profile.hostUrl
+-                        focusedField = LoginField.LOGIN_BUTTON
+-                        submitLogin(onSuccess)
++        val generation = ++qrGeneration
++        qrStartJob?.cancel()
++        qrSession = null
++        qrError = null
++
++        qrStartJob = viewModelScope.launch {
++            val result = withContext(Dispatchers.IO) {
++                runCatching {
++                    qrPairingManager.startSession(pairMode) { profile ->
++                        // NanoHTTPD invokes this callback on its own worker thread. Only accept
++                        // credentials from the newest QR generation; stale sessions are ignored.
++                        if (generation == qrGeneration) {
++                            viewModelScope.launch {
++                                listName = profile.listName
++                                username = profile.username
++                                password = profile.password
++                                hostUrl = profile.hostUrl
++                                focusedField = LoginField.LOGIN_BUTTON
++                                submitLogin(onSuccess, restartQrOnFailure = true)
++                            }
++                        }
+                     }
+                 }
+             }
+-            qrSession = session
++
++            if (generation != qrGeneration) return@launch
++            result.onSuccess { session ->
++                qrSession = session
++                if (session == null) qrError = "تعذر إنشاء رمز QR. تأكد من اتصال التلفزيون بالشبكة المحلية."
++            }.onFailure { error ->
++                qrSession = null
++                qrError = friendlyQrError(error)
++            }
+         }
+     }
+ 
+@@ -111,7 +141,7 @@
+         normalizeHost(hostUrl),
+     )
+ 
+-    fun submitLogin(onSuccess: () -> Unit) {
++    fun submitLogin(onSuccess: () -> Unit, restartQrOnFailure: Boolean = false) {
+         if (isSubmitting) return
+         val profile = currentProfile()
+         val valid = listName.isNotBlank() && hostUrl.isNotBlank() && (mode == LoginMode.M3U || (username.isNotBlank() && password.isNotBlank()))
+@@ -119,12 +149,28 @@
+         isSubmitting = true; loginError = null
+         viewModelScope.launch {
+             repository.authenticate(profile).onSuccess {
+-                credentialStore.saveProfile(profile); qrPairingManager.stopSession(); isSubmitting = false; onSuccess()
+-            }.onFailure { isSubmitting = false; loginError = friendlyError(it) }
++                credentialStore.saveProfile(profile)
++                qrPairingManager.stopSession()
++                qrSession = null
++                isSubmitting = false
++                onSuccess()
++            }.onFailure { error ->
++                isSubmitting = false
++                loginError = friendlyError(error)
++                // A QR token is single-use. If provider authentication fails, immediately
++                // issue a fresh token so the user can correct the credentials and retry.
++                if (restartQrOnFailure) startQrSession(onSuccess)
++            }
+         }
+     }
+ 
+-    fun stopQr() { qrPairingManager.stopSession(); qrSession = null }
++    fun stopQr() {
++        qrGeneration++
++        qrStartJob?.cancel()
++        qrStartJob = null
++        qrPairingManager.stopSession()
++        qrSession = null
++    }
+     override fun onCleared() { stopQr(); super.onCleared() }
+ 
+     private fun normalizeHost(value: String): String {
+@@ -132,6 +178,16 @@
+         return "http://$v"
+     }
+ 
++    private fun friendlyQrError(error: Throwable): String {
++        val text = error.message.orEmpty()
++        return when {
++            text.contains("Address already in use", true) || text.contains("EADDRINUSE", true) ->
++                "منفذ الاقتران 8988 مستخدم من تطبيق آخر. أغلق التطبيق الآخر ثم أعد فتح شاشة الدخول."
++            text.contains("Permission denied", true) -> "تعذر فتح خادم QR على الشبكة المحلية."
++            else -> "تعذر تشغيل الاقتران عبر QR${if (text.isNotBlank()) ": $text" else "."}"
++        }
++    }
++
+     private fun friendlyError(error: Throwable): String {
+         val text = error.message.orEmpty()
+         return when {

@@ -1,0 +1,22 @@
+<!--
+  PLACEHOLDER LOGO — replace this single file with the final exported BRO TV
+  gold/yellow mark (matching the reference PNGs) at production time.
+  Every place that needs the logo (top bar, login screen, launcher icon,
+  launcher banner) points at this one drawable so it can never drift into
+  the old red mark or a blank yellow box described in the brief.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="200dp"
+    android:height="60dp"
+    android:viewportWidth="200"
+    android:viewportHeight="60">
+    <path
+        android:pathData="M4,4 L44,4 A10,10 0 0 1 54,14 A10,10 0 0 1 44,24 L14,24 L14,36 L46,36 A10,10 0 0 1 56,46 A10,10 0 0 1 46,56 L4,56 Z"
+        android:fillColor="#F2B90C" />
+    <path
+        android:pathData="M64,4 L184,4 L184,16 L134,16 L134,56 L114,56 L114,16 L64,16 Z"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M150,20 L190,30 L150,40 Z"
+        android:fillColor="#F2B90C" />
+</vector>

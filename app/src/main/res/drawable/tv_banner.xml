@@ -1,0 +1,9 @@
+<!-- TV launcher banner: dark background + the same gold logo, never the old red icon. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/background_night" />
+    <item
+        android:gravity="center"
+        android:drawable="@drawable/brotv_logo_gold"
+        android:width="180dp"
+        android:height="54dp" />
+</layer-list>
