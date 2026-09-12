@@ -32,15 +32,24 @@ jobs:
           unzip -q /tmp/BROTV-v04.zip -d /tmp/project
           echo 'PROJECT_DIR=/tmp/project' >> "$GITHUB_ENV"
 
+      - name: Install branding dependency
+        shell: bash
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends imagemagick
+
       - name: Inspect login integration points
         shell: bash
         run: |
           set -euo pipefail
           cd "$PROJECT_DIR"
-          echo '=== Kotlin/Java files ==='
-          find app/src/main -type f \( -name '*.kt' -o -name '*.java' \) | sort
-          echo '=== Login/auth references ==='
-          grep -RInE 'Login|login|username|password|server|baseUrl|Xtream|authenticate' app/src/main --include='*.kt' --include='*.java' | head -400 || true
+          for f in \
+            app/src/main/java/com/brotv/iptv/data/pairing/PairingToken.kt \
+            app/src/main/java/com/brotv/iptv/data/pairing/PairingServer.kt \
+            app/src/main/java/com/brotv/iptv/data/pairing/QrPairingManager.kt \
+            app/src/main/java/com/brotv/iptv/ui/screens/login/LoginScreen.kt \
+            app/src/main/java/com/brotv/iptv/ui/screens/login/LoginViewModel.kt; do
+              echo "===== $f ====="
+              cat "$f"
+          done
           echo '=== Compose dependencies ==='
           cat app/build.gradle.kts
           echo '=== Manifest ==='
