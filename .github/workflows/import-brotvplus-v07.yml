@@ -1,0 +1,55 @@
+name: Import BRO PLUS TV source without workflow
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/import-brotvplus-v07.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify and unpack source package
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64, hashlib, pathlib
+          root = pathlib.Path('.github/brotvplus-v05')
+          names = [
+              'part001.b64', 'part002.b64', 'part003.b64',
+              'rest001.b64', 'rest001-tail.b64',
+              'rest002-a.b64', 'rest002-b.b64',
+              'rest003.b64', 'rest004.b64',
+              'rest005-a.b64', 'rest005-b.b64',
+              'rest006.b64',
+          ]
+          b64 = ''.join((root / name).read_text().strip() for name in names)
+          raw = base64.b64decode(b64)
+          got = hashlib.sha256(raw).hexdigest()
+          expected = 'fad1aa3a66b23f9436d0356e3694c3965e29f7381daf80c7888c1b61fb728a6a'
+          if got != expected:
+              raise SystemExit(f'SHA256 mismatch: {got} != {expected}')
+          pathlib.Path('/tmp/brotv.zip').write_bytes(raw)
+          print(f'ZIP SHA256 verified: {got}')
+          PY
+          rm -rf /tmp/brotv
+          mkdir -p /tmp/brotv
+          unzip -q /tmp/brotv.zip -d /tmp/brotv
+          rsync -a --exclude='.github/workflows/android-tv-emulator.yml' /tmp/brotv/BRO-PLUS-TV-FIXED/ ./
+
+      - name: Commit Android TV source
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "Import BRO PLUS TV Android TV-ready source"
+          git push origin HEAD:main
