@@ -6,11 +6,18 @@ MANIFEST="$PROJECT_DIR/app/src/main/AndroidManifest.xml"
 LOGO_B64="$GITHUB_WORKSPACE/.github/assets/brotv-plus/logo.b64"
 mkdir -p "$RES/drawable-nodpi" "$RES/drawable"
 base64 -d "$LOGO_B64" > /tmp/brotv-plus-logo.png
-convert /tmp/brotv-plus-logo.png -resize 600x200 "$RES/drawable-nodpi/brotv_plus_logo.png"
-convert -size 512x512 xc:'#05080e' /tmp/brotv-plus-logo.png -resize 440x147 -gravity center -composite "$RES/drawable-nodpi/brotv_plus_icon.png"
-convert -size 640x360 xc:'#05080e' /tmp/brotv-plus-logo.png -resize 520x173 -gravity center -composite "$RES/drawable-nodpi/brotv_plus_banner.png"
+
+# Build each raster in two explicit stages. Resizing the logo separately avoids
+# ImageMagick resizing/cropping the background canvas and losing the B/play mark.
+convert /tmp/brotv-plus-logo.png -resize 600x200 /tmp/brotv-plus-logo-600.png
+cp /tmp/brotv-plus-logo-600.png "$RES/drawable-nodpi/brotv_plus_logo.png"
+convert /tmp/brotv-plus-logo.png -resize 360x120 /tmp/brotv-plus-icon-mark.png
+convert -size 512x512 xc:'#05080e' /tmp/brotv-plus-icon-mark.png -gravity center -composite "$RES/drawable-nodpi/brotv_plus_icon.png"
+convert /tmp/brotv-plus-logo.png -resize 500x167 /tmp/brotv-plus-banner-mark.png
+convert -size 640x360 xc:'#05080e' /tmp/brotv-plus-banner-mark.png -gravity center -composite "$RES/drawable-nodpi/brotv_plus_banner.png"
 cp "$RES/drawable-nodpi/brotv_plus_icon.png" /tmp/BRO-PLUS-TV-icon.png
 cp "$RES/drawable-nodpi/brotv_plus_logo.png" /tmp/BRO-PLUS-TV-logo.png
+cp "$RES/drawable-nodpi/brotv_plus_banner.png" /tmp/BRO-PLUS-TV-banner.png
 
 python3 - <<'PY'
 from pathlib import Path
