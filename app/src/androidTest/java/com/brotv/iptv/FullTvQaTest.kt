@@ -96,7 +96,10 @@ class FullTvQaTest {
 
         compose.onNodeWithText("الإعدادات").performSemanticsAction(SemanticsActions.RequestFocus)
         compose.onNodeWithText("الإعدادات").assertIsFocused()
-        val navMs = measureUi { device.pressKeyCode(KeyEvent.KEYCODE_DPAD_CENTER) } { hasText("تنسيق الوقت") }
+        val navMs = measureUi(
+            action = { device.pressKeyCode(KeyEvent.KEYCODE_DPAD_CENTER) },
+            done = { hasText("تنسيق الوقت") },
+        )
         assertTrue("Settings navigation too slow: $navMs ms", navMs < 5_000)
 
         waitForText("تنسيق الوقت", 5_000)
