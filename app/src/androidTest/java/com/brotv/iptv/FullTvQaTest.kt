@@ -30,6 +30,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicReference
 
 /** Full Android-TV QA against the real MainActivity and real ExoPlayer. */
 @RunWith(AndroidJUnit4::class)
@@ -65,9 +66,10 @@ class FullTvQaTest {
     @After
     fun tearDown() {
         runCatching {
-            val app = context.applicationContext as BroTvApplication
-            app.player.stop()
-            app.player.clearMediaItems()
+            withPlayer {
+                it.stop()
+                it.clearMediaItems()
+            }
         }
         scenario?.close()
         SecureCredentialStore(context).clear()
@@ -135,22 +137,26 @@ class FullTvQaTest {
 
         compose.onNodeWithContentDescription("QA Movie").performClick()
         val readyMs = waitForPlayer("/movie/user/pass/201.mp4", 20_000)
-        val player = (context.applicationContext as BroTvApplication).player
-        compose.waitUntil(5_000) { player.currentPosition > 100L || player.playbackState == Player.STATE_ENDED }
+        compose.waitUntil(5_000) {
+            withPlayer { it.currentPosition > 100L || it.playbackState == Player.STATE_ENDED }
+        }
 
-        if (!player.isPlaying) player.play()
+        withPlayer { if (!it.isPlaying) it.play() }
         SystemClock.sleep(250)
         device.pressKeyCode(KeyEvent.KEYCODE_DPAD_CENTER)
         SystemClock.sleep(350)
-        assertTrue("DPAD_CENTER did not pause movie", !player.isPlaying || player.playbackState == Player.STATE_ENDED)
+        val paused = withPlayer { !it.isPlaying || it.playbackState == Player.STATE_ENDED }
+        assertTrue("DPAD_CENTER did not pause movie", paused)
 
-        player.seekTo(0)
-        player.play()
+        withPlayer {
+            it.seekTo(0)
+            it.play()
+        }
         SystemClock.sleep(250)
-        val beforeSeek = player.currentPosition
+        val beforeSeek = withPlayer { it.currentPosition }
         device.pressKeyCode(KeyEvent.KEYCODE_DPAD_RIGHT)
         SystemClock.sleep(350)
-        val afterSeek = player.currentPosition
+        val afterSeek = withPlayer { it.currentPosition }
         assertTrue("DPAD_RIGHT did not seek forward: $beforeSeek -> $afterSeek", afterSeek >= beforeSeek)
 
         device.pressBack()
@@ -184,14 +190,28 @@ class FullTvQaTest {
     }
 
     private fun waitForPlayer(expectedPath: String, timeoutMs: Long): Long {
-        val player = (context.applicationContext as BroTvApplication).player
         val start = SystemClock.elapsedRealtime()
         compose.waitUntil(timeoutMs) {
-            val uri = player.currentMediaItem?.localConfiguration?.uri?.toString().orEmpty()
-            uri.contains(expectedPath) &&
-                (player.playbackState == Player.STATE_READY || player.playbackState == Player.STATE_ENDED)
+            withPlayer { player ->
+                val uri = player.currentMediaItem?.localConfiguration?.uri?.toString().orEmpty()
+                uri.contains(expectedPath) &&
+                    (player.playbackState == Player.STATE_READY || player.playbackState == Player.STATE_ENDED)
+            }
         }
         return SystemClock.elapsedRealtime() - start
+    }
+
+    private fun <T> withPlayer(block: (Player) -> T): T {
+        val result = AtomicReference<Result<T>>()
+        instrumentation.runOnMainSync {
+            result.set(
+                runCatching {
+                    val app = context.applicationContext as BroTvApplication
+                    block(app.player)
+                }
+            )
+        }
+        return result.get().getOrThrow()
     }
 
     private fun waitForText(text: String, timeoutMs: Long, substring: Boolean = false) {
