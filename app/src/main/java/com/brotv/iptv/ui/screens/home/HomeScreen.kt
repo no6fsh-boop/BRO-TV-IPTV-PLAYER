@@ -70,10 +70,8 @@ fun HomeScreen(
     }
     LaunchedEffect(profile) { daysLeft = profile?.let { repository.getSubscriptionDaysLeft(it) } }
     LaunchedEffect(Unit) {
-        repeat(3) { attempt ->
-            delay(if (attempt == 0) 60 else 140)
-            runCatching { favoriteFocusRequester.requestFocus() }
-        }
+        delay(250)
+        runCatching { favoriteFocusRequester.requestFocus() }
     }
 
     fun refreshHome() {
