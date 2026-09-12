@@ -112,6 +112,22 @@ fun MediaLibraryScreen(
     val shownMovies = remember(movies, query, sort, favoriteVersion) { sortMovies(movies.filter { query.isBlank() || it.name.contains(query, true) }, sort) }
     val shownSeries = remember(series, query, sort, favoriteVersion) { sortSeries(series.filter { query.isBlank() || it.name.contains(query, true) }, sort) }
 
+    if (fullscreenMovie && selectedMovie != null) {
+    val movie = selectedMovie!!
+    FullPlayer(
+        player = player,
+        title = movie.name,
+        seekSeconds = preferences.seekSeconds,
+        onFavorite = { preferences.toggleFavoriteMovie(movie.id); favoriteVersion++ },
+        onClose = {
+            preferences.saveMovieProgress(movie.id, player.currentPosition, player.duration)
+            player.pause(); fullscreenMovie = false
+            if (mode == LibraryMode.CONTINUE) loadSpecial(LibraryMode.CONTINUE)
+        },
+    )
+    return
+}
+
     Column(Modifier.fillMaxSize().background(BroTvColors.BackgroundNight)) {
         BroTvTopNavBar(if (isSeries) BroTvDestinations.SERIES else BroTvDestinations.MOVIES, onNavigate, { query = it })
         Row(Modifier.fillMaxSize().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -168,20 +184,6 @@ fun MediaLibraryScreen(
         }
     }
 
-    if (fullscreenMovie && selectedMovie != null) {
-        val movie = selectedMovie!!
-        FullPlayer(
-            player = player,
-            title = movie.name,
-            seekSeconds = preferences.seekSeconds,
-            onFavorite = { preferences.toggleFavoriteMovie(movie.id); favoriteVersion++ },
-            onClose = {
-                preferences.saveMovieProgress(movie.id, player.currentPosition, player.duration)
-                player.pause(); fullscreenMovie = false
-                if (mode == LibraryMode.CONTINUE) loadSpecial(LibraryMode.CONTINUE)
-            },
-        )
-    }
 }
 
 @Composable
@@ -225,7 +227,12 @@ fun FullPlayer(player: ExoPlayer, title: String, seekSeconds: Int, onFavorite: (
         player.addListener(listener); onDispose { player.removeListener(listener) }
     }
     BackHandler(onBack = onClose)
-    LaunchedEffect(Unit) { kotlinx.coroutines.delay(60); runCatching { playerFocusRequester.requestFocus() } }
+    LaunchedEffect(Unit) {
+    repeat(3) { attempt ->
+        kotlinx.coroutines.delay(if (attempt == 0) 60 else 140)
+        runCatching { playerFocusRequester.requestFocus() }
+    }
+}
     Box(
         Modifier.fillMaxSize().background(Color.Black).focusRequester(playerFocusRequester).focusable()
             .onPreviewKeyEvent { event ->
@@ -233,7 +240,7 @@ fun FullPlayer(player: ExoPlayer, title: String, seekSeconds: Int, onFavorite: (
                 when (event.nativeKeyEvent.keyCode) {
                     KeyEvent.KEYCODE_DPAD_LEFT -> { player.seekTo((player.currentPosition - seekSeconds * 1000L).coerceAtLeast(0)); true }
                     KeyEvent.KEYCODE_DPAD_RIGHT -> { player.seekTo((player.currentPosition + seekSeconds * 1000L).coerceAtMost(player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE)); true }
-                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { if (player.isPlaying) player.pause() else player.play(); true }
+                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { if (player.isPlaying) player.pause() else player.play(); true }
                     else -> false
                 }
             },
