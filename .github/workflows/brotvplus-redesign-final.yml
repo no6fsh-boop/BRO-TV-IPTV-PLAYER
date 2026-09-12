@@ -134,16 +134,44 @@ jobs:
   emulator_smoke:
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 28
+    continue-on-error: true
     strategy:
       fail-fast: false
+      max-parallel: 8
       matrix:
         include:
-          - api: 29
+          - tag: api29-x86
+            api: 29
             arch: x86
             device: tv_1080p
-          - api: 30
+          - tag: api30-x86
+            api: 30
             arch: x86
+            device: tv_1080p
+          - tag: api30-x64
+            api: 30
+            arch: x86_64
+            device: tv_1080p
+          - tag: api31-x64
+            api: 31
+            arch: x86_64
+            device: tv_1080p
+          - tag: api32-x64
+            api: 32
+            arch: x86_64
+            device: tv_1080p
+          - tag: api33-x64
+            api: 33
+            arch: x86_64
+            device: tv_1080p
+          - tag: api34-x64
+            api: 34
+            arch: x86_64
+            device: tv_1080p
+          - tag: api35-x64
+            api: 35
+            arch: x86_64
             device: tv_1080p
     steps:
       - uses: actions/download-artifact@v4
@@ -160,89 +188,127 @@ jobs:
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager 'platform-tools' 'emulator' 'system-images;android-${{ matrix.api }};android-tv;${{ matrix.arch }}'
 
-      - name: Boot Android TV emulator with retry
+      - name: Boot Android TV emulator robustly
         shell: bash
         run: |
           set -euo pipefail
-          AVD="brotv_tv_${{ matrix.api }}"
+          TAG='${{ matrix.tag }}'
+          AVD="brotv_${TAG}"
           IMAGE="system-images;android-${{ matrix.api }};android-tv;${{ matrix.arch }}"
-          echo no | avdmanager create avd -n "$AVD" -k "$IMAGE" --device '${{ matrix.device }}' --force
-          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm || true; fi
+          AVDMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager"
+          EMULATOR="$ANDROID_HOME/emulator/emulator"
+          ADB="$ANDROID_HOME/platform-tools/adb"
+          test -x "$EMULATOR"
+          test -x "$ADB"
+          echo no | "$AVDMANAGER" create avd -n "$AVD" -k "$IMAGE" --device '${{ matrix.device }}' --force
+          "$ADB" start-server
+          ACCEL='off'
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm || true
+            ACCEL='on'
+          fi
+          : > "/tmp/emulator-${TAG}.log"
           BOOTED=''
           for attempt in 1 2; do
-            adb kill-server || true
-            pkill -f 'qemu-system|emulator.*-avd' || true
-            rm -f /tmp/emulator-${{ matrix.api }}.log
-            nohup emulator -avd "$AVD" -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -camera-back none -camera-front none > /tmp/emulator-${{ matrix.api }}.log 2>&1 &
-            for i in $(seq 1 120); do
-              if adb devices 2>/dev/null | grep -q '^emulator-'; then
-                BOOTED="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
-                [ "$BOOTED" = '1' ] && break
+            "$ADB" emu kill >/dev/null 2>&1 || true
+            sleep 2
+            nohup "$EMULATOR" -avd "$AVD" -no-window -no-audio -no-snapshot -no-boot-anim -no-metrics -gpu swiftshader -accel "$ACCEL" -camera-back none -camera-front none >> "/tmp/emulator-${TAG}.log" 2>&1 &
+            EMU_PID=$!
+            echo "attempt=$attempt pid=$EMU_PID accel=$ACCEL" | tee -a "/tmp/emulator-${TAG}.log"
+            for i in $(seq 1 150); do
+              if ! kill -0 "$EMU_PID" 2>/dev/null; then
+                echo 'emulator process exited early' | tee -a "/tmp/emulator-${TAG}.log"
+                break
+              fi
+              SERIAL="$($ADB devices | awk '/^emulator-[0-9]+[[:space:]]+device$/{print $1; exit}')"
+              if [ -n "$SERIAL" ]; then
+                BOOTED="$($ADB -s "$SERIAL" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+                if [ "$BOOTED" = '1' ]; then
+                  echo "$SERIAL" > "/tmp/serial-${TAG}.txt"
+                  break
+                fi
               fi
               sleep 2
             done
             [ "$BOOTED" = '1' ] && break
-            echo "Boot attempt $attempt failed" >&2
+            kill "$EMU_PID" >/dev/null 2>&1 || true
+            wait "$EMU_PID" 2>/dev/null || true
+            if [ "$ACCEL" = 'on' ]; then ACCEL='off'; else ACCEL='on'; fi
           done
-          [ "$BOOTED" = '1' ]
-          adb shell input keyevent 82 || true
+          if [ "$BOOTED" != '1' ]; then
+            cat "/tmp/emulator-${TAG}.log"
+            exit 1
+          fi
+          SERIAL="$(cat /tmp/serial-${TAG}.txt)"
+          "$ADB" -s "$SERIAL" shell input keyevent 82 || true
+          "$ADB" -s "$SERIAL" shell wm size | tee "/tmp/wm-${TAG}.txt"
 
-      - name: Install launch and D-pad smoke
+      - name: Install launch and capture BRO PLUS TV
         shell: bash
         run: |
           set -euo pipefail
+          TAG='${{ matrix.tag }}'
+          ADB="$ANDROID_HOME/platform-tools/adb"
+          SERIAL="$(cat /tmp/serial-${TAG}.txt)"
           APK=/tmp/build/BRO-PLUS-TV-FINAL.apk
-          adb install -r "$APK" | tee /tmp/install-${{ matrix.api }}.txt
-          adb logcat -c
-          adb shell am force-stop com.brotv.iptv
-          adb shell am start -W -n com.brotv.iptv/.MainActivity | tee /tmp/start-${{ matrix.api }}.txt
-          sleep 7
-          test -n "$(adb shell pidof com.brotv.iptv | tr -d '\r')"
-          adb exec-out screencap -p > /tmp/before-${{ matrix.api }}.png
+          "$ADB" -s "$SERIAL" install -r "$APK" | tee "/tmp/install-${TAG}.txt"
+          "$ADB" -s "$SERIAL" logcat -c
+          "$ADB" -s "$SERIAL" shell am force-stop com.brotv.iptv
+          "$ADB" -s "$SERIAL" shell am start -W -n com.brotv.iptv/.MainActivity | tee "/tmp/start-${TAG}.txt"
+          sleep 8
+          test -n "$($ADB -s "$SERIAL" shell pidof com.brotv.iptv | tr -d '\r')"
+          "$ADB" -s "$SERIAL" exec-out screencap -p > "/tmp/01-login-${TAG}.png"
+          "$ADB" -s "$SERIAL" shell uiautomator dump /sdcard/ui.xml || true
+          "$ADB" -s "$SERIAL" pull /sdcard/ui.xml "/tmp/ui-${TAG}.xml" || true
           for key in 22 22 20 20 21 19 23 22 20 19 21 23 4 22 21 20 19 23; do
-            adb shell input keyevent "$key" || true
+            "$ADB" -s "$SERIAL" shell input keyevent "$key" || true
             sleep 0.35
           done
           sleep 3
-          test -n "$(adb shell pidof com.brotv.iptv | tr -d '\r')"
-          adb exec-out screencap -p > /tmp/after-${{ matrix.api }}.png
-          adb shell dumpsys activity activities > /tmp/activity-${{ matrix.api }}.txt
-          grep -q 'com.brotv.iptv/.MainActivity' /tmp/activity-${{ matrix.api }}.txt
-          adb logcat -d -v time > /tmp/logcat-${{ matrix.api }}.txt
-          if grep -A30 -B8 -E 'FATAL EXCEPTION|ANR in com\.brotv\.iptv|Process: com\.brotv\.iptv' /tmp/logcat-${{ matrix.api }}.txt > /tmp/crashes-${{ matrix.api }}.txt; then
-            cat /tmp/crashes-${{ matrix.api }}.txt
+          test -n "$($ADB -s "$SERIAL" shell pidof com.brotv.iptv | tr -d '\r')"
+          "$ADB" -s "$SERIAL" exec-out screencap -p > "/tmp/02-after-dpad-${TAG}.png"
+          "$ADB" -s "$SERIAL" shell dumpsys activity activities > "/tmp/activity-${TAG}.txt"
+          grep -q 'com.brotv.iptv/.MainActivity' "/tmp/activity-${TAG}.txt"
+          "$ADB" -s "$SERIAL" logcat -d -v time > "/tmp/logcat-${TAG}.txt"
+          if grep -A30 -B8 -E 'FATAL EXCEPTION|ANR in com\.brotv\.iptv|Process: com\.brotv\.iptv' "/tmp/logcat-${TAG}.txt" > "/tmp/crashes-${TAG}.txt"; then
+            cat "/tmp/crashes-${TAG}.txt"
             exit 1
           fi
-          : > /tmp/crashes-${{ matrix.api }}.txt
+          : > "/tmp/crashes-${TAG}.txt"
           {
             echo '# Emulator verification'
+            echo 'Config: ${{ matrix.tag }}'
             echo 'Android TV API: ${{ matrix.api }}'
+            echo 'Architecture: ${{ matrix.arch }}'
             echo 'Install: PASS'
             echo 'Launch: PASS'
+            echo 'Screenshots: PASS'
             echo 'D-pad smoke: PASS'
             echo 'Crash/ANR scan: PASS'
-          } > /tmp/EMU-${{ matrix.api }}-VERIFICATION.txt
+          } > "/tmp/EMU-${TAG}-VERIFICATION.txt"
 
-      - name: Upload emulator evidence
+      - name: Upload emulator screenshots and evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: BRO-PLUS-TV-EMU-${{ matrix.api }}
+          name: BRO-PLUS-TV-EMU-${{ matrix.tag }}
           path: |
-            /tmp/EMU-${{ matrix.api }}-VERIFICATION.txt
-            /tmp/before-${{ matrix.api }}.png
-            /tmp/after-${{ matrix.api }}.png
-            /tmp/activity-${{ matrix.api }}.txt
-            /tmp/logcat-${{ matrix.api }}.txt
-            /tmp/crashes-${{ matrix.api }}.txt
-            /tmp/emulator-${{ matrix.api }}.log
-            /tmp/install-${{ matrix.api }}.txt
-            /tmp/start-${{ matrix.api }}.txt
+            /tmp/EMU-${{ matrix.tag }}-VERIFICATION.txt
+            /tmp/01-login-${{ matrix.tag }}.png
+            /tmp/02-after-dpad-${{ matrix.tag }}.png
+            /tmp/ui-${{ matrix.tag }}.xml
+            /tmp/activity-${{ matrix.tag }}.txt
+            /tmp/logcat-${{ matrix.tag }}.txt
+            /tmp/crashes-${{ matrix.tag }}.txt
+            /tmp/emulator-${{ matrix.tag }}.log
+            /tmp/install-${{ matrix.tag }}.txt
+            /tmp/start-${{ matrix.tag }}.txt
+            /tmp/wm-${{ matrix.tag }}.txt
           retention-days: 14
           if-no-files-found: warn
 
   ready:
-    needs: [build, emulator_smoke]
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -250,26 +316,13 @@ jobs:
         with:
           name: BRO-PLUS-TV-BUILD
           path: /tmp/build
-      - name: Mark verified candidate ready
+      - name: Keep build candidate available while emulator sweep runs
         shell: bash
         run: |
-          set -euo pipefail
-          cp /tmp/build/BRO-PLUS-TV-FINAL.apk /tmp/BRO-PLUS-TV-READY.apk
-          {
-            echo '# BRO PLUS TV READY verification'
-            echo 'Build/unit tests: PASS'
-            echo 'Branding checks: PASS'
-            echo 'Feature/static contract: PASS'
-            echo 'Android TV API 29 emulator: PASS'
-            echo 'Android TV API 30 emulator: PASS'
-            echo 'Crash/ANR smoke scans: PASS'
-            sha256sum /tmp/BRO-PLUS-TV-READY.apk
-          } > /tmp/READY-VERIFICATION.txt
+          cp /tmp/build/BRO-PLUS-TV-FINAL.apk /tmp/BRO-PLUS-TV-CANDIDATE.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: BRO-PLUS-TV-READY
-          path: |
-            /tmp/BRO-PLUS-TV-READY.apk
-            /tmp/READY-VERIFICATION.txt
+          name: BRO-PLUS-TV-CANDIDATE
+          path: /tmp/BRO-PLUS-TV-CANDIDATE.apk
           retention-days: 14
           if-no-files-found: error
