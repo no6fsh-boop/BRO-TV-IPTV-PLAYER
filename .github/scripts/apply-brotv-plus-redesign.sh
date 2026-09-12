@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 : "${PROJECT_DIR:?PROJECT_DIR is required}"
-echo decode-main
-cat .github/redesign/part*.b64 | base64 -d | gunzip > /tmp/brotvplus-redesign.patch
-echo decode-fix1
-base64 -d .github/redesign/fix1.b64 | gunzip > /tmp/brotvplus-redesign-fix1.patch
-echo decode-fix2
-base64 -d .github/redesign/fix2.b64 | gunzip > /tmp/brotvplus-redesign-fix2.patch
-echo decode-fix3
-base64 -d .github/redesign/fix3.b64 | gunzip > /tmp/brotvplus-redesign-fix3.patch
-echo decode-fix4
-base64 -d .github/redesign/fix4.b64 | gunzip > /tmp/brotvplus-redesign-fix4.patch
-echo decode-fix5
-base64 -d .github/redesign/fix5.b64 | gunzip > /tmp/brotvplus-redesign-fix5.patch
-echo decode-fix6
-cat .github/redesign/fix6-part*.b64 | base64 -d | gunzip > /tmp/brotvplus-redesign-fix6.patch
+python3 - <<'PY'
+from pathlib import Path
+import base64, gzip, glob, re
+
+def clean_decode(paths, out):
+    s=''.join(Path(p).read_text() for p in paths)
+    s=''.join(re.findall(r'[A-Za-z0-9+/=]', s))
+    raw=base64.b64decode(s, validate=False)
+    data=gzip.decompress(raw)
+    Path(out).write_bytes(data)
+    print(out, len(data))
+
+clean_decode(sorted(glob.glob('.github/redesign/part*.b64')), '/tmp/brotvplus-redesign.patch')
+for n in range(1,6):
+    clean_decode([f'.github/redesign/fix{n}.b64'], f'/tmp/brotvplus-redesign-fix{n}.patch')
+clean_decode(sorted(glob.glob('.github/redesign/fix6-part*.b64')), '/tmp/brotvplus-redesign-fix6.patch')
+PY
 cd "$PROJECT_DIR"
 patch -p1 < /tmp/brotvplus-redesign.patch
 patch -p1 < /tmp/brotvplus-redesign-fix1.patch
