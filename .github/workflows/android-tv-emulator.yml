@@ -30,14 +30,15 @@ jobs:
       - name: Run on Android TV emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: 34
           target: android-tv
           arch: x86_64
           profile: tv_1080p
           ram-size: 2048M
           heap-size: 512M
           disable-animations: true
-          emulator-options: -no-snapshot-load -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          disable-linux-hw-accel: true
+          emulator-options: -no-snapshot-load -no-snapshot-save -no-window -gpu software -noaudio -no-boot-anim
           script: GRADLE_CMD=gradle bash scripts/android_tv_smoke_test.sh
 
       - name: Upload APK and test evidence
