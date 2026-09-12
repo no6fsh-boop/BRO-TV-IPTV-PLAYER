@@ -3,7 +3,6 @@ package com.brotv.iptv
 import android.os.SystemClock
 import android.view.KeyEvent
 import androidx.compose.ui.semantics.SemanticsActions
-import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -131,7 +130,7 @@ class FullTvQaTest {
         waitForText("QA Movies", 8_000)
         compose.onNodeWithText("QA Movies").performClick()
         waitForText("QA Movie", 8_000)
-        compose.onNodeWithContentDescription("QA Movie").assertExists()
+        compose.onNodeWithContentDescription("QA Movie").fetchSemanticsNode()
         compose.waitUntil(5_000) { requestedPaths.any { it.startsWith("/poster.png") } }
 
         compose.onNodeWithContentDescription("QA Movie").performClick()
@@ -165,7 +164,7 @@ class FullTvQaTest {
         waitForText("QA Series Category", 8_000)
         compose.onNodeWithText("QA Series Category").performClick()
         waitForText("QA Series", 8_000)
-        compose.onNodeWithContentDescription("QA Series").assertExists()
+        compose.onNodeWithContentDescription("QA Series").fetchSemanticsNode()
 
         compose.onNodeWithContentDescription("QA Series").performClick()
         waitForText("QA Episode 1", 10_000, substring = true)
@@ -228,7 +227,7 @@ class FullTvQaTest {
                     """[{"stream_id":101,"name":"QA Live HD","category_id":"1","stream_icon":"${server.url("/poster.png")}","epg_channel_id":"qa.live","tv_archive":1,"tv_archive_duration":7}]"""
                 )
                 action == "get_simple_data_table" || action == "get_short_epg" -> json(
-                    """{"epg_listings":[{"title":"QA Current","start":"2026-09-12 15:00:00","end":"2026-09-12 16:00:00"},{"title":"QA Next","start":"2026-09-12 16:00:00","end":"2026-09-12 17:00:00"}]}"""
+                    """{"epg_listings":[{"title":"QA Current","start":"2026-09-12 00:00:00","end":"2026-09-12 23:59:00"},{"title":"QA Next","start":"2026-09-13 00:00:00","end":"2026-09-13 23:59:00"}]}"""
                 )
                 action == "get_vod_categories" -> json(
                     """[{"category_id":"10","category_name":"QA Movies"}]"""
