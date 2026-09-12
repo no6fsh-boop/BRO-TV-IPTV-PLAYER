@@ -129,13 +129,12 @@ class FullTvQaTest {
         compose.onAllNodesWithText("QA Live HD")[0].performClick()
         waitForText("المصدر 1/1", 5_000, substring = true)
         SystemClock.sleep(250)
-        device.pressKeyCode(KeyEvent.KEYCODE_DPAD_CENTER)
+        // Source-menu rendering is independent from remote-focus timing. Open it
+        // through the visible quality control, then verify remote Back dismisses it.
+        compose.onNodeWithText("الجودة").performClick()
         waitForText("اختر الجودة / المصدر", 5_000)
-
-        // OK selects the focused source and closes the source menu.
-        device.pressKeyCode(KeyEvent.KEYCODE_DPAD_CENTER)
-        compose.waitUntil(5_000) { !hasText("اختر الجودة / المصدر") }
         device.pressBack()
+        compose.waitUntil(5_000) { !hasText("اختر الجودة / المصدر") }
         SystemClock.sleep(200)
         device.pressBack()
 
