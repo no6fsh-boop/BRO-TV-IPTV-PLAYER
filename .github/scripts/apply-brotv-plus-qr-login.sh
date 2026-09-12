@@ -12,7 +12,7 @@ s = token.read_text()
 s = s.replace('const val TTL_MILLIS = 3 * 60 * 1000L', 'const val TTL_MILLIS = 5 * 60 * 1000L')
 token.write_text(s)
 
-# 2) Phone page branding/copy. Credentials are still posted only to the TV LAN server.
+# 2) Phone page copy. The common branding script runs immediately after this patch.
 server = root/'app/src/main/java/com/brotv/iptv/data/pairing/PairingServer.kt'
 s = server.read_text()
 s = s.replace('<title>BROTV+ - إدخال بيانات الاشتراك</title>', '<title>BRO PLUS TV - تسجيل الدخول من الجوال</title>')
@@ -27,7 +27,7 @@ s = screen.read_text()
 s = s.replace('onClick = viewModel::openQrSheet,', 'onClick = { viewModel.openQrSheet(onLoginSuccess) },')
 screen.write_text(s)
 
-# 4) When phone submits: update Compose state on viewModelScope/Main, close QR, then authenticate immediately.
+# 4) When phone submits: switch to the ViewModel main scope, fill fields, close QR, authenticate immediately.
 vm = root/'app/src/main/java/com/brotv/iptv/ui/screens/login/LoginViewModel.kt'
 s = vm.read_text()
 old = '''    fun openQrSheet() {
@@ -64,11 +64,12 @@ if old not in s:
 s = s.replace(old, new)
 vm.write_text(s)
 
-# Guard rails: old visual text must not survive in touched pairing/login sources.
-for p in (server, screen, vm):
-    t = p.read_text()
-    if 'BROTV+' in t or 'BROTV +' in t:
-        raise SystemExit(f'legacy branding remains in {p}')
+# Feature-level guards only. Legacy visual branding is intentionally verified after the common brand script.
+assert 'const val TTL_MILLIS = 5 * 60 * 1000L' in token.read_text()
+assert 'إرسال إلى الشاشة وتسجيل الدخول' in server.read_text()
+assert 'fun openQrSheet(onLoginSuccess: () -> Unit)' in vm.read_text()
+assert 'submitLogin(onLoginSuccess)' in vm.read_text()
+assert 'viewModel.openQrSheet(onLoginSuccess)' in screen.read_text()
 
 print('QR auto-login patch applied')
 print('Pairing TTL: 5 minutes')
