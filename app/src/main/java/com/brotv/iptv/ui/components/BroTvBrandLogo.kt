@@ -21,24 +21,30 @@ import androidx.compose.ui.unit.sp
 import com.brotv.iptv.ui.theme.BroTvColors
 
 /**
- * Single reusable BRO TV IPTV PLAYER brand mark.
- * The layout mirrors the owner's reference: gold BRO, white TV,
- * gold outlined play mark, with IPTV PLAYER underneath.
+ * Reusable BRO TV IPTV PLAYER mark based on the owner's supplied reference.
+ * The reference uses a gold B, white RO TV lettering and a gold play mark.
  */
 @Composable
 fun BroTvBrandLogo(
     modifier: Modifier = Modifier,
     compact: Boolean = false,
 ) {
-    val titleSize = if (compact) 24.sp else 42.sp
-    val subtitleSize = if (compact) 7.sp else 10.sp
-    val playSize = if (compact) 27.dp else 42.dp
+    val titleSize = if (compact) 24.sp else 32.sp
+    val subtitleSize = if (compact) 7.sp else 8.sp
+    val playSize = if (compact) 27.dp else 34.dp
 
     Column(modifier = modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = "BRO",
+                text = "B",
                 color = BroTvColors.Gold,
+                fontSize = titleSize,
+                fontWeight = FontWeight.Black,
+                letterSpacing = (-1).sp,
+            )
+            Text(
+                text = "RO",
+                color = Color.White,
                 fontSize = titleSize,
                 fontWeight = FontWeight.Black,
                 letterSpacing = (-1).sp,
@@ -51,7 +57,7 @@ fun BroTvBrandLogo(
                 fontWeight = FontWeight.Black,
                 letterSpacing = (-1).sp,
             )
-            Spacer(Modifier.width(if (compact) 5.dp else 8.dp))
+            Spacer(Modifier.width(if (compact) 5.dp else 7.dp))
             Canvas(Modifier.size(playSize)) {
                 val outer = Path().apply {
                     moveTo(size.width * .18f, size.height * .08f)
@@ -82,7 +88,7 @@ fun BroTvBrandLogo(
             color = Color.White.copy(alpha = .78f),
             fontSize = subtitleSize,
             fontWeight = FontWeight.Medium,
-            letterSpacing = if (compact) .5.sp else 1.sp,
+            letterSpacing = if (compact) .5.sp else .8.sp,
         )
     }
 }
