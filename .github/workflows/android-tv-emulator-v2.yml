@@ -1,0 +1,70 @@
+name: Android TV Emulator Test V2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/android-tv-emulator-v2.yml'
+
+jobs:
+  android-tv:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build debug APK
+        run: gradle assembleDebug
+
+      - name: Detect available Android TV image
+        id: tvimage
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager --list > /tmp/sdk-list.txt
+          echo 'Available Android TV x86_64 images:'
+          grep -oE 'system-images;android-[0-9]+;android-tv;x86_64' /tmp/sdk-list.txt | sort -u || true
+          API="$(grep -oE 'system-images;android-[0-9]+;android-tv;x86_64' /tmp/sdk-list.txt \
+            | sed -E 's/system-images;android-([0-9]+);android-tv;x86_64/\1/' \
+            | sort -nr | head -n1)"
+          if [ -z "$API" ]; then
+            echo 'No Android TV x86_64 system image is available.' >&2
+            exit 1
+          fi
+          echo "api=$API" >> "$GITHUB_OUTPUT"
+          echo "Selected Android TV API $API"
+
+      - name: Run on Android TV emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ steps.tvimage.outputs.api }}
+          target: android-tv
+          arch: x86_64
+          profile: tv_1080p
+          ram-size: 2048M
+          heap-size: 512M
+          disable-animations: true
+          emulator-options: -no-snapshot-load -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: GRADLE_CMD=gradle bash scripts/android_tv_smoke_test.sh
+
+      - name: Upload APK and test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bro-plus-tv-android-tv-v2
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/reports/androidTests/
+            build/tv-smoke/
