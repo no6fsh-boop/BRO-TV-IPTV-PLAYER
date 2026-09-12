@@ -1,0 +1,32 @@
+name: Fix QA MP4 Base64
+
+on:
+  push:
+    branches: [qa/full-e2e]
+    paths:
+      - '.github/workflows/fix-qa-mp4-b64.yml'
+      - 'scripts/fix_qa_mp4_b64.py'
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: qa/full-e2e
+      - name: Repair and validate fixture
+        run: python3 scripts/fix_qa_mp4_b64.py
+      - name: Commit fixture repair
+        run: |
+          if git diff --quiet -- app/src/androidTest/assets/qa_media_mp4.b64; then
+            echo 'No repair needed'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/androidTest/assets/qa_media_mp4.b64
+          git commit -m 'QA: repair MP4 fixture base64 exactly'
+          git push origin HEAD:qa/full-e2e
