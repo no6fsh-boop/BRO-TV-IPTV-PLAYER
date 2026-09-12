@@ -1,6 +1,7 @@
 package com.brotv.iptv
 
 import android.os.SystemClock
+import android.util.Base64
 import android.view.KeyEvent
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsFocused
@@ -29,10 +30,16 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicReference
+import okio.Buffer
 
-/** Full Android-TV QA against the real MainActivity and real ExoPlayer. */
+/**
+ * Full Android-TV QA against the real MainActivity and real ExoPlayer.
+ * A local Xtream-compatible server provides deterministic categories, posters,
+ * live MPEG-TS, movie MP4 and series episode MP4 so CI never depends on a real subscription.
+ */
 @RunWith(AndroidJUnit4::class)
 class FullTvQaTest {
     @get:Rule
@@ -79,6 +86,7 @@ class FullTvQaTest {
     @Test
     fun settings_and_remote_dpad_are_responsive() {
         val oldClock = AppPreferences(context).use24HourClock
+        captureScreenshot("home")
 
         compose.onNodeWithText("القنوات").performSemanticsAction(SemanticsActions.RequestFocus)
         compose.onNodeWithText("القنوات").assertIsFocused()
@@ -88,10 +96,7 @@ class FullTvQaTest {
 
         compose.onNodeWithText("الإعدادات").performSemanticsAction(SemanticsActions.RequestFocus)
         compose.onNodeWithText("الإعدادات").assertIsFocused()
-        val navMs = measureUi(
-            action = { device.pressKeyCode(KeyEvent.KEYCODE_DPAD_CENTER) },
-            done = { hasText("تنسيق الوقت") },
-        )
+        val navMs = measureUi { device.pressKeyCode(KeyEvent.KEYCODE_DPAD_CENTER) } { hasText("تنسيق الوقت") }
         assertTrue("Settings navigation too slow: $navMs ms", navMs < 5_000)
 
         waitForText("تنسيق الوقت", 5_000)
@@ -116,7 +121,7 @@ class FullTvQaTest {
         assertTrue(requestedPaths.any { it.startsWith("/live/user/pass/101.ts") })
 
         compose.onAllNodesWithText("QA Live HD")[0].performClick()
-        SystemClock.sleep(300)
+        waitForText("QA Live HD", 3_000)
         device.pressKeyCode(KeyEvent.KEYCODE_DPAD_CENTER)
         waitForText("اختر الجودة / المصدر", 3_000)
         device.pressBack()
@@ -133,6 +138,7 @@ class FullTvQaTest {
         compose.onNodeWithText("QA Movies").performClick()
         waitForText("QA Movie", 8_000)
         compose.onNodeWithContentDescription("QA Movie").fetchSemanticsNode()
+        captureScreenshot("movies")
         compose.waitUntil(5_000) { requestedPaths.any { it.startsWith("/poster.png") } }
 
         compose.onNodeWithContentDescription("QA Movie").performClick()
@@ -171,6 +177,7 @@ class FullTvQaTest {
         compose.onNodeWithText("QA Series Category").performClick()
         waitForText("QA Series", 8_000)
         compose.onNodeWithContentDescription("QA Series").fetchSemanticsNode()
+        captureScreenshot("series")
 
         compose.onNodeWithContentDescription("QA Series").performClick()
         waitForText("QA Episode 1", 10_000, substring = true)
@@ -212,6 +219,14 @@ class FullTvQaTest {
             )
         }
         return result.get().getOrThrow()
+    }
+
+    private fun captureScreenshot(name: String) {
+        val dir = context.getExternalFilesDir("qa-screenshots") ?: error("External files directory unavailable")
+        dir.mkdirs()
+        val output = File(dir, "$name.png")
+        assertTrue("Could not capture $name screenshot", device.takeScreenshot(output))
+        println("QA_SCREENSHOT ${output.absolutePath}")
     }
 
     private fun waitForText(text: String, timeoutMs: Long, substring: Boolean = false) {
@@ -264,12 +279,13 @@ class FullTvQaTest {
                 action == "get_series_info" -> json(
                     """{"info":{"cover":"${server.url("/poster.png")}","backdrop_path":["${server.url("/poster.png")}"],"rating":"9.0","year":"2026","genre":"QA","plot":"Series details QA"},"episodes":{"1":[{"id":401,"episode_num":1,"title":"QA Episode 1","container_extension":"mp4","info":{"duration":"00:00:03","plot":"Episode playback QA","movie_image":"${server.url("/poster.png")}"}}]}}"""
                 )
-                url?.encodedPath == "/poster.png" -> MockResponse()
-                    .setResponseCode(302)
-                    .setHeader("Location", POSTER_URL)
-                url?.encodedPath == "/live/user/pass/101.ts" -> mediaRedirect()
-                url?.encodedPath == "/movie/user/pass/201.mp4" -> mediaRedirect()
-                url?.encodedPath == "/series/user/pass/401.mp4" -> mediaRedirect()
+                url?.encodedPath == "/poster.png" -> binaryAsset(listOf("qa_poster.b64"), "image/png")
+                url?.encodedPath == "/live/user/pass/101.ts" -> binaryAsset(
+                    listOf("qa_live_ts_1.b64", "qa_live_ts_2.b64", "qa_live_ts_3.b64", "qa_live_ts_4.b64", "qa_live_ts_5.b64"),
+                    "video/mp2t",
+                )
+                url?.encodedPath == "/movie/user/pass/201.mp4" -> binaryAsset(listOf("qa_media_mp4.b64"), "video/mp4")
+                url?.encodedPath == "/series/user/pass/401.mp4" -> binaryAsset(listOf("qa_media_mp4.b64"), "video/mp4")
                 else -> MockResponse().setResponseCode(404).setBody("QA 404: $path")
             }
         }
@@ -279,13 +295,18 @@ class FullTvQaTest {
             .setHeader("Content-Type", "application/json; charset=utf-8")
             .setBody(body)
 
-        private fun mediaRedirect() = MockResponse()
-            .setResponseCode(302)
-            .setHeader("Location", MEDIA_URL)
-    }
-
-    private companion object {
-        const val MEDIA_URL = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"
-        const val POSTER_URL = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/BigBuckBunny.jpg"
+        private fun binaryAsset(parts: List<String>, contentType: String): MockResponse {
+            val encoded = buildString {
+                parts.forEach { name ->
+                    instrumentation.context.assets.open(name).bufferedReader().use { append(it.readText().trim()) }
+                }
+            }
+            val bytes = Base64.decode(encoded, Base64.DEFAULT)
+            return MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", contentType)
+                .setHeader("Content-Length", bytes.size)
+                .setBody(Buffer().write(bytes))
+        }
     }
 }
