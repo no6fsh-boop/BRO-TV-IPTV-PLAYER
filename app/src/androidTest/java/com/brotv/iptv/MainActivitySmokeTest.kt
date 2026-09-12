@@ -1,9 +1,8 @@
 package com.brotv.iptv
 
-import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
 import org.junit.Test
@@ -16,13 +15,13 @@ class MainActivitySmokeTest {
 
     @Test
     fun appStartsAndRendersComposeRoot() {
-        composeRule.onRoot().assertExists()
+        composeRule.onRoot().fetchSemanticsNode()
     }
 
     @Test
     fun freshInstallShowsLoginChoices() {
-        composeRule.onNodeWithText("Xtream").assertExists()
-        composeRule.onNodeWithText("M3U URL").assertExists()
-        composeRule.onNodeWithText("تسجيل الدخول").assertExists()
+        composeRule.onNodeWithText("Xtream").fetchSemanticsNode()
+        composeRule.onNodeWithText("M3U URL").fetchSemanticsNode()
+        composeRule.onNodeWithText("تسجيل الدخول").fetchSemanticsNode()
     }
 }
