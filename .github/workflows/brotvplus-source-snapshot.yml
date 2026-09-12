@@ -1,0 +1,40 @@
+name: BRO PLUS TV source snapshot
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/brotvplus-source-snapshot.yml'
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconstruct source
+        run: |
+          python3 - <<'PY'
+          import base64,glob,hashlib,pathlib
+          p=sorted(glob.glob('.github/brotvplus-v04/part*.b64'))
+          raw=base64.b64decode(''.join(pathlib.Path(x).read_text() for x in p))
+          assert hashlib.sha256(raw).hexdigest()=='a2a3cc0f3d0f59f697fd7508521746ca8e7d28ee34c73b230efa3a1066ff0488'
+          pathlib.Path('/tmp/source.zip').write_bytes(raw)
+          PY
+          rm -rf /tmp/project && mkdir /tmp/project
+          unzip -q /tmp/source.zip -d /tmp/project
+          echo 'PROJECT_DIR=/tmp/project' >> "$GITHUB_ENV"
+      - name: Apply current redesign
+        run: |
+          chmod +x .github/scripts/apply-brotv-plus-redesign.sh
+          .github/scripts/apply-brotv-plus-redesign.sh
+      - name: Collect relevant sources
+        run: |
+          mkdir -p /tmp/snapshot
+          find "$PROJECT_DIR/app/src/main" -type f \( -name '*.kt' -o -name '*.xml' \) -print0 | xargs -0 cp --parents -t /tmp/snapshot
+          find /tmp/snapshot -type f | sort > /tmp/snapshot/files.txt
+      - name: Upload source snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: BRO-PLUS-TV-SOURCE-SNAPSHOT
+          path: /tmp/snapshot
+          retention-days: 2
