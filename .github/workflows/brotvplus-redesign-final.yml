@@ -83,6 +83,14 @@ jobs:
           "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging /tmp/BRO-PLUS-TV-FINAL.apk | tee /tmp/aapt.txt
           sha256sum /tmp/BRO-PLUS-TV-FINAL.apk | tee /tmp/apk-sha256.txt
 
+      - name: Upload APK for real-device testing
+        uses: actions/upload-artifact@v4
+        with:
+          name: BRO-PLUS-TV-REAL-DEVICE-TEST
+          path: /tmp/BRO-PLUS-TV-FINAL.apk
+          retention-days: 14
+          if-no-files-found: error
+
       - name: Install Android TV emulator image
         shell: bash
         run: |
