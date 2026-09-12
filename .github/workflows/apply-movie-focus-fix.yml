@@ -1,0 +1,94 @@
+name: Apply movie player focus fix
+
+on:
+  push:
+    branches: [ ui/reference-home-redesign ]
+    paths: [ '.github/workflows/apply-movie-focus-fix.yml' ]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ui/reference-home-redesign
+      - name: Patch movie fullscreen focus
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/java/com/brotv/iptv/ui/screens/library/MediaLibraryScreen.kt')
+          s = p.read_text()
+          marker = '''    val shownMovies = remember(movies, query, sort, favoriteVersion) { sortMovies(movies.filter { query.isBlank() || it.name.contains(query, true) }, sort) }
+              val shownSeries = remember(series, query, sort, favoriteVersion) { sortSeries(series.filter { query.isBlank() || it.name.contains(query, true) }, sort) }
+
+          '''.replace('              val shownSeries', '    val shownSeries')
+          early = '''    val shownMovies = remember(movies, query, sort, favoriteVersion) { sortMovies(movies.filter { query.isBlank() || it.name.contains(query, true) }, sort) }
+              val shownSeries = remember(series, query, sort, favoriteVersion) { sortSeries(series.filter { query.isBlank() || it.name.contains(query, true) }, sort) }
+
+              // Fullscreen playback is rendered as an exclusive focus surface. Keeping
+              // the library composed underneath allowed TV focus to remain on an
+              // invisible poster/nav item, causing DPAD_CENTER to miss play/pause.
+              if (fullscreenMovie && selectedMovie != null) {
+                  val movie = selectedMovie!!
+                  FullPlayer(
+                      player = player,
+                      title = movie.name,
+                      seekSeconds = preferences.seekSeconds,
+                      onFavorite = { preferences.toggleFavoriteMovie(movie.id); favoriteVersion++ },
+                      onClose = {
+                          preferences.saveMovieProgress(movie.id, player.currentPosition, player.duration)
+                          player.pause(); fullscreenMovie = false
+                          if (mode == LibraryMode.CONTINUE) loadSpecial(LibraryMode.CONTINUE)
+                      },
+                  )
+                  return
+              }
+
+          '''.replace('              ', '    ')
+          if marker not in s:
+              raise SystemExit('insertion marker not found')
+          s = s.replace(marker, early, 1)
+          trailing = '''
+              if (fullscreenMovie && selectedMovie != null) {
+                  val movie = selectedMovie!!
+                  FullPlayer(
+                      player = player,
+                      title = movie.name,
+                      seekSeconds = preferences.seekSeconds,
+                      onFavorite = { preferences.toggleFavoriteMovie(movie.id); favoriteVersion++ },
+                      onClose = {
+                          preferences.saveMovieProgress(movie.id, player.currentPosition, player.duration)
+                          player.pause(); fullscreenMovie = false
+                          if (mode == LibraryMode.CONTINUE) loadSpecial(LibraryMode.CONTINUE)
+                      },
+                  )
+              }
+          '''.replace('              ', '    ')
+          if trailing not in s:
+              raise SystemExit('trailing fullscreen block not found')
+          s = s.replace(trailing, '\n', 1)
+          old_focus = '    LaunchedEffect(Unit) { kotlinx.coroutines.delay(60); runCatching { playerFocusRequester.requestFocus() } }'
+          new_focus = '''    LaunchedEffect(Unit) {
+                  repeat(3) { attempt ->
+                      kotlinx.coroutines.delay(if (attempt == 0) 60 else 140)
+                      runCatching { playerFocusRequester.requestFocus() }
+                  }
+              }'''.replace('              ', '    ')
+          if old_focus not in s:
+              raise SystemExit('focus marker not found')
+          s = s.replace(old_focus, new_focus, 1)
+          s = s.replace(
+              'KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { if (player.isPlaying) player.pause() else player.play(); true }',
+              'KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { if (player.isPlaying) player.pause() else player.play(); true }',
+              1,
+          )
+          p.write_text(s)
+          PY
+          git config user.name "BRO TV QA Bot"
+          git config user.email "actions@github.com"
+          git add app/src/main/java/com/brotv/iptv/ui/screens/library/MediaLibraryScreen.kt
+          git commit -m "Fix fullscreen movie remote focus"
+          git push origin HEAD:ui/reference-home-redesign
