@@ -70,8 +70,10 @@ fun HomeScreen(
     }
     LaunchedEffect(profile) { daysLeft = profile?.let { repository.getSubscriptionDaysLeft(it) } }
     LaunchedEffect(Unit) {
-        delay(250)
-        runCatching { favoriteFocusRequester.requestFocus() }
+        repeat(3) { attempt ->
+            delay(if (attempt == 0) 60 else 140)
+            runCatching { favoriteFocusRequester.requestFocus() }
+        }
     }
 
     fun refreshHome() {
@@ -175,7 +177,7 @@ fun HomeScreen(
 private fun HomeHeader() {
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
         Row(
-            modifier = Modifier.fillMaxWidth().height(96.dp),
+            modifier = Modifier.fillMaxWidth().height(112.dp),
             verticalAlignment = Alignment.Top,
         ) {
             Column(Modifier.width(330.dp)) {

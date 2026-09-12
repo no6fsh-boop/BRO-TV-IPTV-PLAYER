@@ -27,6 +27,7 @@ import com.brotv.iptv.data.model.IptvCategory
 import com.brotv.iptv.data.model.PlaylistProfile
 import com.brotv.iptv.data.remote.IptvRepository
 import com.brotv.iptv.navigation.BroTvDestinations
+import com.brotv.iptv.ui.components.BroTvBrandLogo
 import com.brotv.iptv.ui.theme.BroTvColors
 import kotlinx.coroutines.launch
 
@@ -103,7 +104,7 @@ fun SettingsScreen(profile:PlaylistProfile?,repository:IptvRepository,preference
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
                 SettingCard("↩","رجوع",Modifier.width(150.dp).height(58.dp)){onNavigate(BroTvDestinations.HOME)}
                 Text("الإعدادات",color=Color.White,fontWeight=FontWeight.Bold,style=androidx.compose.material3.MaterialTheme.typography.headlineMedium)
-                Spacer(Modifier.width(150.dp))
+                BroTvBrandLogo(compact=true,modifier=Modifier.width(150.dp))
             }
             Spacer(Modifier.height(24.dp))
             LazyVerticalGrid(columns=GridCells.Fixed(columns),state=gridState,modifier=Modifier.weight(1f),horizontalArrangement=Arrangement.spacedBy(18.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){

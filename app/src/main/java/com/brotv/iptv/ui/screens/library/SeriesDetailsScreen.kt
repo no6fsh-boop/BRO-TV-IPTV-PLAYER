@@ -37,6 +37,7 @@ import coil.compose.AsyncImage
 import com.brotv.iptv.data.local.AppPreferences
 import com.brotv.iptv.data.model.*
 import com.brotv.iptv.data.remote.IptvRepository
+import com.brotv.iptv.ui.components.BroTvBrandLogo
 import com.brotv.iptv.ui.theme.BroTvColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -75,7 +76,7 @@ fun SeriesDetailsScreen(seriesId:Int, profile:PlaylistProfile, repository:IptvRe
                 Spacer(Modifier.height(8.dp));val isFav=seriesId in preferences.favoriteSeriesIds();SmallButton(if(isFav)"♥ في المفضلة" else "♡ إضافة للمفضلة"){preferences.toggleFavoriteSeries(seriesId);favoriteVersion++};Spacer(Modifier.height(7.dp));SmallButton("رجوع",onBack)
             }
             Column(Modifier.weight(1f).fillMaxHeight()){
-                Text(details?.item?.name?:"تفاصيل المسلسل",color=Color.White,fontWeight=FontWeight.Bold,style=androidx.compose.material3.MaterialTheme.typography.headlineMedium)
+                Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.Top){Text(details?.item?.name?:"تفاصيل المسلسل",color=Color.White,fontWeight=FontWeight.Bold,style=androidx.compose.material3.MaterialTheme.typography.headlineMedium);Spacer(Modifier.weight(1f));BroTvBrandLogo(compact=true,modifier=Modifier.width(150.dp))}
                 Text(listOfNotNull(details?.item?.rating?.let{"IMDb $it"},details?.item?.year,details?.item?.genre).joinToString("  •  "),color=BroTvColors.Gold)
                 Text(details?.item?.plot.orEmpty(),color=BroTvColors.TextSecondary,maxLines=4,overflow=TextOverflow.Ellipsis)
                 Spacer(Modifier.height(12.dp));Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){
