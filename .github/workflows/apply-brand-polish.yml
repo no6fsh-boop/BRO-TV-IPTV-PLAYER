@@ -1,0 +1,77 @@
+name: Apply final brand polish
+
+on:
+  push:
+    branches: [ ui/reference-home-redesign ]
+    paths: [ '.github/workflows/apply-brand-polish.yml' ]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ui/reference-home-redesign
+      - name: Polish branding across remaining screens
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          # Home: give logo subtitle enough vertical room and make initial
+          # focus visible reliably in emulator/real-TV startup.
+          p = Path('app/src/main/java/com/brotv/iptv/ui/screens/home/HomeScreen.kt')
+          s = p.read_text()
+          s = s.replace(
+              'LaunchedEffect(Unit) {\n        delay(250)\n        runCatching { favoriteFocusRequester.requestFocus() }\n    }',
+              'LaunchedEffect(Unit) {\n        repeat(3) { attempt ->\n            delay(if (attempt == 0) 60 else 140)\n            runCatching { favoriteFocusRequester.requestFocus() }\n        }\n    }',
+              1,
+          )
+          s = s.replace(
+              'modifier = Modifier.fillMaxWidth().height(96.dp)',
+              'modifier = Modifier.fillMaxWidth().height(112.dp)',
+              1,
+          )
+          p.write_text(s)
+
+          # Settings: put the same compact BRO TV brand mark in the header.
+          p = Path('app/src/main/java/com/brotv/iptv/ui/screens/settings/SettingsScreen.kt')
+          s = p.read_text()
+          if 'import com.brotv.iptv.ui.components.BroTvBrandLogo' not in s:
+              s = s.replace(
+                  'import com.brotv.iptv.navigation.BroTvDestinations\n',
+                  'import com.brotv.iptv.navigation.BroTvDestinations\nimport com.brotv.iptv.ui.components.BroTvBrandLogo\n',
+                  1,
+              )
+          s = s.replace(
+              'Text("الإعدادات",color=Color.White,fontWeight=FontWeight.Bold,style=androidx.compose.material3.MaterialTheme.typography.headlineMedium)\n                Spacer(Modifier.width(150.dp))',
+              'Text("الإعدادات",color=Color.White,fontWeight=FontWeight.Bold,style=androidx.compose.material3.MaterialTheme.typography.headlineMedium)\n                BroTvBrandLogo(compact=true,modifier=Modifier.width(150.dp))',
+              1,
+          )
+          p.write_text(s)
+
+          # Series details: keep title/info and brand mark in one polished header.
+          p = Path('app/src/main/java/com/brotv/iptv/ui/screens/library/SeriesDetailsScreen.kt')
+          s = p.read_text()
+          if 'import com.brotv.iptv.ui.components.BroTvBrandLogo' not in s:
+              s = s.replace(
+                  'import com.brotv.iptv.data.remote.IptvRepository\n',
+                  'import com.brotv.iptv.data.remote.IptvRepository\nimport com.brotv.iptv.ui.components.BroTvBrandLogo\n',
+                  1,
+              )
+          old = 'Text(details?.item?.name?:"تفاصيل المسلسل",color=Color.White,fontWeight=FontWeight.Bold,style=androidx.compose.material3.MaterialTheme.typography.headlineMedium)'
+          new = 'Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.Top){Text(details?.item?.name?:"تفاصيل المسلسل",color=Color.White,fontWeight=FontWeight.Bold,style=androidx.compose.material3.MaterialTheme.typography.headlineMedium);Spacer(Modifier.weight(1f));BroTvBrandLogo(compact=true,modifier=Modifier.width(150.dp))}'
+          if old not in s:
+              raise SystemExit('series header marker not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+          git config user.name "BRO TV UI Bot"
+          git config user.email "actions@github.com"
+          git add app/src/main/java/com/brotv/iptv/ui/screens/home/HomeScreen.kt \
+                  app/src/main/java/com/brotv/iptv/ui/screens/settings/SettingsScreen.kt \
+                  app/src/main/java/com/brotv/iptv/ui/screens/library/SeriesDetailsScreen.kt
+          git commit -m "Polish BRO TV branding across remaining screens"
+          git push origin HEAD:ui/reference-home-redesign
