@@ -10,7 +10,7 @@ on:
 jobs:
   qa:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
       - name: Reconstruct source
@@ -67,19 +67,76 @@ jobs:
           echo no | "$ANDROID_HOME/cmdline-tools/16.0/bin/avdmanager" create avd -n brotv_demo -k 'system-images;android-30;android-tv;x86' --device tv_1080p --force
           nohup "$ANDROID_HOME/emulator/emulator" -avd brotv_demo -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader -accel off >/tmp/emulator.log 2>&1 &
           "$ANDROID_HOME/platform-tools/adb" wait-for-device
-          for i in $(seq 1 120); do [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1 ] && break; sleep 2; done
+          for i in $(seq 1 150); do [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1 ] && break; sleep 2; done
+          adb shell input keyevent KEYCODE_WAKEUP || true
+          adb shell wm dismiss-keyguard || true
+          adb shell settings put global stay_on_while_plugged_in 7 || true
+          adb shell settings put system screen_off_timeout 2147483647 || true
+          adb shell input keyevent 82 || true
+          sleep 2
           adb install -r /tmp/BRO-PLUS-TV-DEMO-QA.apk
       - name: Capture actual app screens and remote movement
         run: |
           set -u
           mkdir -p /tmp/evidence
-          adb logcat -c
           FAIL=0
+
+          wait_for_focus() {
+            route="$1"
+            : > "/tmp/evidence/$route-focus-poll.txt"
+            for i in $(seq 1 45); do
+              WIN="$(adb shell dumpsys window 2>/dev/null | grep -E 'mCurrentFocus|mFocusedApp' | tr -d '\r' | tail -n 4)"
+              echo "[$i] $WIN" >> "/tmp/evidence/$route-focus-poll.txt"
+              if echo "$WIN" | grep -q 'com.brotv.iptv'; then
+                return 0
+              fi
+              sleep 1
+            done
+            return 1
+          }
+
+          screenshot_is_visible() {
+            file="$1"
+            identify "$file" >/dev/null 2>&1 || return 1
+            STATS="$(convert "$file" -colorspace Gray -format '%[fx:mean] %[fx:standard_deviation]' info:)"
+            echo "$STATS"
+            python3 - "$STATS" <<'PY'
+          import sys
+          mean,sd=map(float,sys.argv[1].split())
+          # A completely black/off display has virtually no variation.
+          raise SystemExit(0 if sd > 0.003 or mean > 0.015 else 1)
+          PY
+          }
+
           for route in home live_tv movies series settings; do
+            adb logcat -c || true
+            adb shell input keyevent KEYCODE_WAKEUP || true
+            adb shell wm dismiss-keyguard || true
+            adb shell input keyevent 82 || true
             adb shell am force-stop com.brotv.iptv || true
-            adb shell am start -n com.brotv.iptv/.MainActivity --ez BRO_DEMO true --es BRO_DEMO_ROUTE "$route" >"/tmp/evidence/$route-start.txt" 2>&1 || true
-            sleep 6
+            adb shell am start -W -n com.brotv.iptv/.MainActivity --ez BRO_DEMO true --es BRO_DEMO_ROUTE "$route" >"/tmp/evidence/$route-start.txt" 2>&1 || true
+
+            if ! wait_for_focus "$route"; then
+              echo "NO_FOCUSED_APP_WINDOW route=$route" | tee "/tmp/evidence/$route-result.txt"
+              adb shell dumpsys window > "/tmp/evidence/$route-window.txt" || true
+              adb shell dumpsys activity activities > "/tmp/evidence/$route-activity.txt" || true
+              adb logcat -d -v time > "/tmp/evidence/$route-logcat.txt" || true
+              FAIL=1
+              continue
+            fi
+
+            sleep 5
             adb exec-out screencap -p > "/tmp/evidence/$route-01.png" || true
+            adb shell uiautomator dump /sdcard/$route-before.xml >/dev/null 2>&1 || true
+            adb pull /sdcard/$route-before.xml "/tmp/evidence/$route-before.xml" >/dev/null 2>&1 || true
+
+            if ! screenshot_is_visible "/tmp/evidence/$route-01.png" > "/tmp/evidence/$route-visual-stats.txt" 2>&1; then
+              echo "BLANK_OR_BLACK_SCREEN route=$route" | tee "/tmp/evidence/$route-result.txt"
+              adb logcat -d -v time > "/tmp/evidence/$route-logcat.txt" || true
+              FAIL=1
+              continue
+            fi
+
             PID="$(adb shell pidof com.brotv.iptv 2>/dev/null | tr -d '\r')"
             if [ -z "$PID" ]; then
               echo "APP_NOT_ALIVE_AFTER_LAUNCH route=$route" | tee "/tmp/evidence/$route-result.txt"
@@ -87,28 +144,45 @@ jobs:
               FAIL=1
               continue
             fi
+
             for key in 22 20 21 19 22 21; do
+              if ! wait_for_focus "$route"; then
+                echo "FOCUS_LOST_BEFORE_KEY route=$route key=$key" >> "/tmp/evidence/$route-result.txt"
+                FAIL=1
+                break
+              fi
               adb shell input keyevent "$key" || true
-              sleep 0.45
+              sleep 0.6
             done
             sleep 2
             adb exec-out screencap -p > "/tmp/evidence/$route-02-after-remote.png" || true
+            adb shell uiautomator dump /sdcard/$route-after.xml >/dev/null 2>&1 || true
+            adb pull /sdcard/$route-after.xml "/tmp/evidence/$route-after.xml" >/dev/null 2>&1 || true
+
             PID="$(adb shell pidof com.brotv.iptv 2>/dev/null | tr -d '\r')"
             if [ -z "$PID" ]; then
-              echo "APP_NOT_ALIVE_AFTER_REMOTE route=$route" | tee "/tmp/evidence/$route-result.txt"
+              echo "APP_NOT_ALIVE_AFTER_REMOTE route=$route" | tee -a "/tmp/evidence/$route-result.txt"
+              FAIL=1
+            elif ! wait_for_focus "$route"; then
+              echo "APP_ALIVE_BUT_NOT_FOCUSED_AFTER_REMOTE route=$route pid=$PID" | tee -a "/tmp/evidence/$route-result.txt"
+              FAIL=1
+            elif ! screenshot_is_visible "/tmp/evidence/$route-02-after-remote.png" >> "/tmp/evidence/$route-visual-stats.txt" 2>&1; then
+              echo "BLANK_AFTER_REMOTE route=$route pid=$PID" | tee -a "/tmp/evidence/$route-result.txt"
               FAIL=1
             else
-              echo "PASS route=$route pid=$PID" | tee "/tmp/evidence/$route-result.txt"
+              echo "PASS route=$route pid=$PID" | tee -a "/tmp/evidence/$route-result.txt"
             fi
             adb logcat -d -v time > "/tmp/evidence/$route-logcat.txt" || true
+            if grep -E 'FATAL EXCEPTION|ANR in com\.brotv\.iptv' "/tmp/evidence/$route-logcat.txt" > "/tmp/evidence/$route-crash-anr.txt"; then
+              cat "/tmp/evidence/$route-crash-anr.txt"
+              FAIL=1
+            else
+              : > "/tmp/evidence/$route-crash-anr.txt"
+            fi
           done
+
           cat /tmp/evidence/*-logcat.txt > /tmp/evidence/logcat-all.txt 2>/dev/null || true
-          if grep -E 'FATAL EXCEPTION|ANR in com\.brotv\.iptv' /tmp/evidence/logcat-all.txt > /tmp/evidence/crash-anr.txt; then
-            cat /tmp/evidence/crash-anr.txt
-            FAIL=1
-          else
-            : > /tmp/evidence/crash-anr.txt
-          fi
+          cat /tmp/evidence/*-crash-anr.txt > /tmp/evidence/crash-anr.txt 2>/dev/null || true
           adb shell dumpsys gfxinfo com.brotv.iptv > /tmp/evidence/gfxinfo.txt || true
           adb shell dumpsys meminfo com.brotv.iptv > /tmp/evidence/meminfo.txt || true
           exit "$FAIL"
