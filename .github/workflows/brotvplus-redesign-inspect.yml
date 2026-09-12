@@ -1,0 +1,41 @@
+name: BRO PLUS TV redesign source inspect
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/brotvplus-redesign-inspect.yml'
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconstruct verified source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, glob, hashlib, pathlib
+          parts=sorted(glob.glob('.github/brotvplus-v04/part*.b64'))
+          assert len(parts)==9, parts
+          raw=base64.b64decode(''.join(pathlib.Path(p).read_text() for p in parts))
+          digest=hashlib.sha256(raw).hexdigest()
+          print('SOURCE_SHA256='+digest)
+          assert digest=='a2a3cc0f3d0f59f697fd7508521746ca8e7d28ee34c73b230efa3a1066ff0488'
+          pathlib.Path('/tmp/BROTV-v04.zip').write_bytes(raw)
+          PY
+          rm -rf /tmp/project && mkdir /tmp/project
+          unzip -q /tmp/BROTV-v04.zip -d /tmp/project
+      - name: Archive source
+        shell: bash
+        run: |
+          cd /tmp/project
+          zip -qr /tmp/BRO-PLUS-TV-redesign-source.zip .
+      - name: Upload source
+        uses: actions/upload-artifact@v4
+        with:
+          name: BRO-PLUS-TV-redesign-source
+          path: /tmp/BRO-PLUS-TV-redesign-source.zip
+          retention-days: 3
