@@ -71,27 +71,47 @@ jobs:
           adb install -r /tmp/BRO-PLUS-TV-DEMO-QA.apk
       - name: Capture actual app screens and remote movement
         run: |
+          set -u
           mkdir -p /tmp/evidence
           adb logcat -c
+          FAIL=0
           for route in home live_tv movies series settings; do
-            adb shell am force-stop com.brotv.iptv
-            adb shell am start -W -n com.brotv.iptv/.MainActivity --ez BRO_DEMO true --es BRO_DEMO_ROUTE "$route" >/tmp/evidence/$route-start.txt
+            adb shell am force-stop com.brotv.iptv || true
+            adb shell am start -n com.brotv.iptv/.MainActivity --ez BRO_DEMO true --es BRO_DEMO_ROUTE "$route" >"/tmp/evidence/$route-start.txt" 2>&1 || true
             sleep 6
-            adb exec-out screencap -p > /tmp/evidence/$route-01.png
-            adb shell input keyevent 22
-            adb shell input keyevent 20
-            adb shell input keyevent 20
-            adb shell input keyevent 21
-            adb shell input keyevent 19
-            adb shell input keyevent 23
+            adb exec-out screencap -p > "/tmp/evidence/$route-01.png" || true
+            PID="$(adb shell pidof com.brotv.iptv 2>/dev/null | tr -d '\r')"
+            if [ -z "$PID" ]; then
+              echo "APP_NOT_ALIVE_AFTER_LAUNCH route=$route" | tee "/tmp/evidence/$route-result.txt"
+              adb logcat -d -v time > "/tmp/evidence/$route-logcat.txt" || true
+              FAIL=1
+              continue
+            fi
+            for key in 22 20 21 19 22 21; do
+              adb shell input keyevent "$key" || true
+              sleep 0.45
+            done
             sleep 2
-            adb exec-out screencap -p > /tmp/evidence/$route-02-after-remote.png
-            test -n "$(adb shell pidof com.brotv.iptv | tr -d '\r')"
+            adb exec-out screencap -p > "/tmp/evidence/$route-02-after-remote.png" || true
+            PID="$(adb shell pidof com.brotv.iptv 2>/dev/null | tr -d '\r')"
+            if [ -z "$PID" ]; then
+              echo "APP_NOT_ALIVE_AFTER_REMOTE route=$route" | tee "/tmp/evidence/$route-result.txt"
+              FAIL=1
+            else
+              echo "PASS route=$route pid=$PID" | tee "/tmp/evidence/$route-result.txt"
+            fi
+            adb logcat -d -v time > "/tmp/evidence/$route-logcat.txt" || true
           done
-          adb logcat -d -v time > /tmp/evidence/logcat.txt
-          if grep -E 'FATAL EXCEPTION|ANR in com\.brotv\.iptv' /tmp/evidence/logcat.txt; then exit 1; fi
+          cat /tmp/evidence/*-logcat.txt > /tmp/evidence/logcat-all.txt 2>/dev/null || true
+          if grep -E 'FATAL EXCEPTION|ANR in com\.brotv\.iptv' /tmp/evidence/logcat-all.txt > /tmp/evidence/crash-anr.txt; then
+            cat /tmp/evidence/crash-anr.txt
+            FAIL=1
+          else
+            : > /tmp/evidence/crash-anr.txt
+          fi
           adb shell dumpsys gfxinfo com.brotv.iptv > /tmp/evidence/gfxinfo.txt || true
           adb shell dumpsys meminfo com.brotv.iptv > /tmp/evidence/meminfo.txt || true
+          exit "$FAIL"
       - name: Upload QA evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -103,6 +123,7 @@ jobs:
             /tmp/emulator.log
           retention-days: 14
       - name: Upload demo APK
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: BRO-PLUS-TV-DEMO-QA-APK
