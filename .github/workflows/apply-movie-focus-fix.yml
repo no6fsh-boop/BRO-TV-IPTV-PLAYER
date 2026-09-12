@@ -19,72 +19,64 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
+
           p = Path('app/src/main/java/com/brotv/iptv/ui/screens/library/MediaLibraryScreen.kt')
           s = p.read_text()
-          marker = '''    val shownMovies = remember(movies, query, sort, favoriteVersion) { sortMovies(movies.filter { query.isBlank() || it.name.contains(query, true) }, sort) }
-              val shownSeries = remember(series, query, sort, favoriteVersion) { sortSeries(series.filter { query.isBlank() || it.name.contains(query, true) }, sort) }
 
-          '''.replace('              val shownSeries', '    val shownSeries')
-          early = '''    val shownMovies = remember(movies, query, sort, favoriteVersion) { sortMovies(movies.filter { query.isBlank() || it.name.contains(query, true) }, sort) }
-              val shownSeries = remember(series, query, sort, favoriteVersion) { sortSeries(series.filter { query.isBlank() || it.name.contains(query, true) }, sort) }
+          # Remove the old overlay-style fullscreen block near the end of
+          # MediaLibraryScreen. This leaves the underlying library focusable,
+          # which can steal DPAD_CENTER from the movie player.
+          pattern = re.compile(
+              r'\n    if \(fullscreenMovie && selectedMovie != null\) \{.*?\n    \}\n\}\n\n@Composable\nprivate fun PosterCard',
+              re.S,
+          )
+          replacement = '\n}\n\n@Composable\nprivate fun PosterCard'
+          s, count = pattern.subn(replacement, s, count=1)
+          if count != 1:
+              raise SystemExit(f'fullscreen overlay block matches: {count}')
 
-              // Fullscreen playback is rendered as an exclusive focus surface. Keeping
-              // the library composed underneath allowed TV focus to remain on an
-              // invisible poster/nav item, causing DPAD_CENTER to miss play/pause.
-              if (fullscreenMovie && selectedMovie != null) {
-                  val movie = selectedMovie!!
-                  FullPlayer(
-                      player = player,
-                      title = movie.name,
-                      seekSeconds = preferences.seekSeconds,
-                      onFavorite = { preferences.toggleFavoriteMovie(movie.id); favoriteVersion++ },
-                      onClose = {
-                          preferences.saveMovieProgress(movie.id, player.currentPosition, player.duration)
-                          player.pause(); fullscreenMovie = false
-                          if (mode == LibraryMode.CONTINUE) loadSpecial(LibraryMode.CONTINUE)
-                      },
-                  )
-                  return
-              }
-
-          '''.replace('              ', '    ')
+          # Render fullscreen playback before the library UI so the library is
+          # removed from the focus tree while a movie is playing.
+          marker = '    Column(Modifier.fillMaxSize().background(BroTvColors.BackgroundNight)) {'
           if marker not in s:
-              raise SystemExit('insertion marker not found')
-          s = s.replace(marker, early, 1)
-          trailing = '''
-              if (fullscreenMovie && selectedMovie != null) {
-                  val movie = selectedMovie!!
-                  FullPlayer(
-                      player = player,
-                      title = movie.name,
-                      seekSeconds = preferences.seekSeconds,
-                      onFavorite = { preferences.toggleFavoriteMovie(movie.id); favoriteVersion++ },
-                      onClose = {
-                          preferences.saveMovieProgress(movie.id, player.currentPosition, player.duration)
-                          player.pause(); fullscreenMovie = false
-                          if (mode == LibraryMode.CONTINUE) loadSpecial(LibraryMode.CONTINUE)
-                      },
-                  )
-              }
-          '''.replace('              ', '    ')
-          if trailing not in s:
-              raise SystemExit('trailing fullscreen block not found')
-          s = s.replace(trailing, '\n', 1)
+              raise SystemExit('library column marker not found')
+          early = '''    if (fullscreenMovie && selectedMovie != null) {
+              val movie = selectedMovie!!
+              FullPlayer(
+                  player = player,
+                  title = movie.name,
+                  seekSeconds = preferences.seekSeconds,
+                  onFavorite = { preferences.toggleFavoriteMovie(movie.id); favoriteVersion++ },
+                  onClose = {
+                      preferences.saveMovieProgress(movie.id, player.currentPosition, player.duration)
+                      player.pause(); fullscreenMovie = false
+                      if (mode == LibraryMode.CONTINUE) loadSpecial(LibraryMode.CONTINUE)
+                  },
+              )
+              return
+          }
+
+          '''
+          s = s.replace(marker, early + marker, 1)
+
           old_focus = '    LaunchedEffect(Unit) { kotlinx.coroutines.delay(60); runCatching { playerFocusRequester.requestFocus() } }'
           new_focus = '''    LaunchedEffect(Unit) {
-                  repeat(3) { attempt ->
-                      kotlinx.coroutines.delay(if (attempt == 0) 60 else 140)
-                      runCatching { playerFocusRequester.requestFocus() }
-                  }
-              }'''.replace('              ', '    ')
+              repeat(3) { attempt ->
+                  kotlinx.coroutines.delay(if (attempt == 0) 60 else 140)
+                  runCatching { playerFocusRequester.requestFocus() }
+              }
+          }'''
           if old_focus not in s:
-              raise SystemExit('focus marker not found')
+              raise SystemExit('player focus marker not found')
           s = s.replace(old_focus, new_focus, 1)
-          s = s.replace(
-              'KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { if (player.isPlaying) player.pause() else player.play(); true }',
-              'KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { if (player.isPlaying) player.pause() else player.play(); true }',
-              1,
-          )
+
+          old_center = 'KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { if (player.isPlaying) player.pause() else player.play(); true }'
+          new_center = 'KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { if (player.isPlaying) player.pause() else player.play(); true }'
+          if old_center not in s:
+              raise SystemExit('center-key handler not found')
+          s = s.replace(old_center, new_center, 1)
+
           p.write_text(s)
           PY
           git config user.name "BRO TV QA Bot"
