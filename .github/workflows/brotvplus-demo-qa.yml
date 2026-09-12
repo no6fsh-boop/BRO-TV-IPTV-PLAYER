@@ -1,0 +1,110 @@
+name: BRO PLUS TV demo QA
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/brotvplus-demo-qa.yml'
+      - '.github/scripts/apply-brotv-demo-hook.sh'
+      - '.github/scripts/brotv-demo-server.py'
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconstruct source
+        run: |
+          python3 - <<'PY'
+          import base64,glob,hashlib,pathlib
+          p=sorted(glob.glob('.github/brotvplus-v04/part*.b64'))
+          raw=base64.b64decode(''.join(pathlib.Path(x).read_text() for x in p))
+          assert hashlib.sha256(raw).hexdigest()=='a2a3cc0f3d0f59f697fd7508521746ca8e7d28ee34c73b230efa3a1066ff0488'
+          pathlib.Path('/tmp/source.zip').write_bytes(raw)
+          PY
+          rm -rf /tmp/project && mkdir /tmp/project
+          unzip -q /tmp/source.zip -d /tmp/project
+          echo 'PROJECT_DIR=/tmp/project' >> "$GITHUB_ENV"
+      - name: Apply app changes and demo hook
+        run: |
+          chmod +x .github/scripts/apply-brotv-plus-redesign.sh .github/scripts/apply-brotv-demo-hook.sh
+          .github/scripts/apply-brotv-plus-redesign.sh
+          .github/scripts/apply-brotv-demo-hook.sh
+      - name: Branding dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends imagemagick ffmpeg
+      - name: Apply branding
+        run: |
+          chmod +x .github/scripts/apply-brotv-plus-brand.sh
+          .github/scripts/apply-brotv-plus-brand.sh
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Build demo APK
+        run: |
+          cd "$PROJECT_DIR"
+          gradle :app:testDebugUnitTest :app:assembleDebug --console=plain
+          cp app/build/outputs/apk/debug/app-debug.apk /tmp/BRO-PLUS-TV-DEMO-QA.apk
+      - name: Start demo provider
+        run: |
+          ffmpeg -hide_banner -loglevel error -y -f lavfi -i 'testsrc2=size=1280x720:rate=25' -t 12 -c:v libx264 -preset ultrafast -pix_fmt yuv420p /tmp/brotv-demo.mp4
+          ffmpeg -hide_banner -loglevel error -y -i /tmp/brotv-demo.mp4 -c copy -f mpegts /tmp/brotv-demo.ts
+          python3 .github/scripts/brotv-demo-server.py >/tmp/demo-server.log 2>&1 &
+          sleep 2
+          curl -fsS http://127.0.0.1:18080/health
+      - name: Install Android TV image
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platform-tools' 'emulator' 'system-images;android-30;android-tv;x86'
+      - name: Boot emulator
+        run: |
+          export ANDROID_AVD_HOME=/tmp/avd-demo
+          mkdir -p "$ANDROID_AVD_HOME"
+          echo no | "$ANDROID_HOME/cmdline-tools/16.0/bin/avdmanager" create avd -n brotv_demo -k 'system-images;android-30;android-tv;x86' --device tv_1080p --force
+          nohup "$ANDROID_HOME/emulator/emulator" -avd brotv_demo -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader -accel off >/tmp/emulator.log 2>&1 &
+          "$ANDROID_HOME/platform-tools/adb" wait-for-device
+          for i in $(seq 1 120); do [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1 ] && break; sleep 2; done
+          adb install -r /tmp/BRO-PLUS-TV-DEMO-QA.apk
+      - name: Capture actual app screens and remote movement
+        run: |
+          mkdir -p /tmp/evidence
+          adb logcat -c
+          for route in home live_tv movies series settings; do
+            adb shell am force-stop com.brotv.iptv
+            adb shell am start -W -n com.brotv.iptv/.MainActivity --ez BRO_DEMO true --es BRO_DEMO_ROUTE "$route" >/tmp/evidence/$route-start.txt
+            sleep 6
+            adb exec-out screencap -p > /tmp/evidence/$route-01.png
+            adb shell input keyevent 22
+            adb shell input keyevent 20
+            adb shell input keyevent 20
+            adb shell input keyevent 21
+            adb shell input keyevent 19
+            adb shell input keyevent 23
+            sleep 2
+            adb exec-out screencap -p > /tmp/evidence/$route-02-after-remote.png
+            test -n "$(adb shell pidof com.brotv.iptv | tr -d '\r')"
+          done
+          adb logcat -d -v time > /tmp/evidence/logcat.txt
+          if grep -E 'FATAL EXCEPTION|ANR in com\.brotv\.iptv' /tmp/evidence/logcat.txt; then exit 1; fi
+          adb shell dumpsys gfxinfo com.brotv.iptv > /tmp/evidence/gfxinfo.txt || true
+          adb shell dumpsys meminfo com.brotv.iptv > /tmp/evidence/meminfo.txt || true
+      - name: Upload QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BRO-PLUS-TV-DEMO-QA-EVIDENCE
+          path: |
+            /tmp/evidence
+            /tmp/demo-server.log
+            /tmp/emulator.log
+          retention-days: 14
+      - name: Upload demo APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: BRO-PLUS-TV-DEMO-QA-APK
+          path: /tmp/BRO-PLUS-TV-DEMO-QA.apk
+          retention-days: 14
