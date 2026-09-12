@@ -17,6 +17,7 @@ import org.junit.Rule
 import org.junit.Test
 
 /** Real Compose focus traversal and real SharedPreferences; no tap coordinates. */
+@OptIn(ExperimentalTestApi::class)
 class SettingsRemoteTest {
     @get:Rule val compose = createComposeRule()
     private val context: Context = ApplicationProvider.getApplicationContext()
