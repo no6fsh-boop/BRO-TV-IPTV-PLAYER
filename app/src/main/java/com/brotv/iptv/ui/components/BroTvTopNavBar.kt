@@ -1,6 +1,5 @@
 package com.brotv.iptv.ui.components
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,9 +16,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
-import com.brotv.iptv.R
 import com.brotv.iptv.navigation.BroTvDestinations
 import com.brotv.iptv.ui.theme.BroTvColors
 
@@ -35,22 +32,25 @@ fun BroTvTopNavBar(
     val searchFieldFocus = remember { FocusRequester() }
 
     Row(
-        modifier = modifier.fillMaxWidth().background(BroTvColors.BackgroundNight).padding(horizontal = 24.dp, vertical = 10.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Color(0xF205101A))
+            .border(1.dp, BroTvColors.Gold.copy(alpha = .30f), RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp))
+            .padding(horizontal = 24.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Image(
-            painter = painterResource(R.drawable.brotv_logo_gold),
-            contentDescription = "BROTV+",
-            modifier = Modifier.height(38.dp).width(100.dp),
+        BroTvBrandLogo(
+            compact = true,
+            modifier = Modifier.width(142.dp),
         )
-        Spacer(Modifier.width(28.dp))
+        Spacer(Modifier.width(26.dp))
         TAB_ORDER.forEach { (route, label) ->
             NavTab(label, route == currentRoute) { if (route != currentRoute) onNavigate(route) }
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(10.dp))
         }
         Spacer(Modifier.weight(1f))
         if (!isSearchOpen) {
-            FocusBox(width = 46.dp, onClick = { isSearchOpen = true }) {
+            FocusBox(width = 48.dp, onClick = { isSearchOpen = true }) {
                 Text("⌕", color = Color.White)
             }
         } else {
@@ -85,13 +85,17 @@ private fun NavTab(label: String, active: Boolean, onClick: () -> Unit) {
         modifier = Modifier
             .onFocusChanged { focused = it.isFocused }
             .clickable(onClick = onClick)
-            .border(if (focused) 2.dp else 0.dp, BroTvColors.Gold, RoundedCornerShape(6.dp))
+            .background(
+                if (focused) BroTvColors.SurfaceElevatedHigh else Color.Transparent,
+                RoundedCornerShape(7.dp),
+            )
+            .border(if (focused) 2.dp else 0.dp, BroTvColors.Gold, RoundedCornerShape(7.dp))
             .padding(horizontal = 9.dp, vertical = 5.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(label, color = Color.White)
         Spacer(Modifier.height(3.dp))
-        Box(Modifier.height(2.dp).width(46.dp).background(if (active) BroTvColors.Gold else Color.Transparent))
+        Box(Modifier.height(3.dp).width(46.dp).background(if (active) BroTvColors.Gold else Color.Transparent, RoundedCornerShape(50)))
     }
 }
 
