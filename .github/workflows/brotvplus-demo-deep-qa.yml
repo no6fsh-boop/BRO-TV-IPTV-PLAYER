@@ -7,6 +7,8 @@ on:
       - '.github/scripts/brotv-deep-qa.sh'
       - '.github/scripts/apply-brotv-demo-hook.sh'
       - '.github/scripts/brotv-demo-server.py'
+      - '.github/scripts/brotv-ui-evidence.py'
+      - '.github/scripts/tests/**'
 
 jobs:
   deep-qa:
@@ -14,6 +16,8 @@ jobs:
     timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
+      - name: Test QA evidence validation
+        run: python3 -m unittest discover -s .github/scripts/tests -v
       - name: Reconstruct source
         run: |
           python3 - <<'PY'
@@ -63,12 +67,18 @@ jobs:
           sdkmanager 'platform-tools' 'emulator' 'system-images;android-30;android-tv;x86'
       - name: Boot emulator and install app
         run: |
+          # Software-only emulation produced launch timeouts and an input ANR
+          # in round 1. Fail setup explicitly if hardware acceleration is absent.
+          test -c /dev/kvm
+          sudo chmod 666 /dev/kvm
+          "$ANDROID_HOME/emulator/emulator" -accel-check
           export ANDROID_AVD_HOME=/tmp/avd-deep
           mkdir -p "$ANDROID_AVD_HOME"
-          echo no | "$ANDROID_HOME/cmdline-tools/16.0/bin/avdmanager" create avd -n brotv_deep -k 'system-images;android-30;android-tv;x86' --device tv_1080p --force
-          nohup "$ANDROID_HOME/emulator/emulator" -avd brotv_deep -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader -accel off >/tmp/emulator.log 2>&1 &
+          echo no | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n brotv_deep -k 'system-images;android-30;android-tv;x86' --device tv_1080p --force
+          nohup "$ANDROID_HOME/emulator/emulator" -avd brotv_deep -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader -accel on >/tmp/emulator.log 2>&1 &
           adb wait-for-device
           for i in $(seq 1 150); do [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1 ] && break; sleep 2; done
+          test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1
           adb shell input keyevent KEYCODE_WAKEUP || true
           adb shell wm dismiss-keyguard || true
           adb shell settings put global stay_on_while_plugged_in 7 || true

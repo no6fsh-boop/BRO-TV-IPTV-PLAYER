@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -u
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+UI_EVIDENCE="$SCRIPT_DIR/brotv-ui-evidence.py"
 mkdir -p /tmp/evidence/deep
 RESULTS=/tmp/evidence/deep-qa-results.txt
 : > "$RESULTS"
@@ -10,7 +12,7 @@ pass(){ echo "PASS | $1 | $2" | tee -a "$RESULTS"; }
 fail(){ echo "FAIL | $1 | $2" | tee -a "$RESULTS"; FAIL=1; }
 info(){ echo "INFO | $1 | $2" | tee -a "$RESULTS"; }
 app_alive(){ adb shell pidof com.brotv.iptv 2>/dev/null | grep -q '[0-9]'; }
-focused(){ adb shell dumpsys window 2>/dev/null | grep -E 'mCurrentFocus|mFocusedApp' | grep -q 'com.brotv.iptv'; }
+focused(){ adb shell dumpsys window 2>/dev/null | grep 'mCurrentFocus' | grep -q 'com.brotv.iptv'; }
 
 wake(){
   adb shell input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || true
@@ -27,7 +29,7 @@ visible_shot(){
   python3 - "$stats" <<'PY'
 import sys
 m,s=map(float,sys.argv[1].split())
-raise SystemExit(0 if (s>0.003 or m>0.015) else 1)
+raise SystemExit(0 if s>0.003 else 1)
 PY
 }
 
@@ -35,7 +37,7 @@ wait_ready(){
   local tag="$1"
   for i in $(seq 1 35); do
     if app_alive && focused; then
-      if visible_shot "/tmp/evidence/deep/${tag}-ready.png"; then return 0; fi
+      if safe_dump "${tag}-ready"; then return 0; fi
     fi
     sleep 1
   done
@@ -60,38 +62,29 @@ safe_dump(){
   adb shell rm -f "/sdcard/${tag}.xml" >/dev/null 2>&1 || true
   timeout 9s adb shell uiautomator dump --compressed "/sdcard/${tag}.xml" >/dev/null 2>&1 || return 1
   adb pull "/sdcard/${tag}.xml" "/tmp/evidence/deep/${tag}.xml" >/dev/null 2>&1 || return 1
-  grep -q 'package="com.brotv.iptv"' "/tmp/evidence/deep/${tag}.xml" || return 1
+  python3 "$UI_EVIDENCE" "/tmp/evidence/deep/${tag}.xml" || return 1
   visible_shot "/tmp/evidence/deep/${tag}.png" || return 1
 }
 
 find_xy(){
-  local xml="$1" target="$2" mode="${3:-exact}"
-  python3 - "$xml" "$target" "$mode" <<'PY'
-import sys,re,xml.etree.ElementTree as ET
-p,target,mode=sys.argv[1:4]
-root=ET.parse(p).getroot(); found=None
-def match(v): return (v==target) if mode=='exact' else v.startswith(target)
-def walk(node,anc):
-    global found
-    if found is not None:return
-    a=node.attrib
-    if match(a.get('text','')) or match(a.get('content-desc','')):
-        for c in reversed(anc+[node]):
-            if c.attrib.get('clickable')=='true': found=c; return
-    for c in node: walk(c,anc+[node])
-walk(root,[])
-if found is None: raise SystemExit(3)
-m=re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',found.attrib.get('bounds',''))
-if not m: raise SystemExit(4)
-x1,y1,x2,y2=map(int,m.groups()); print((x1+x2)//2,(y1+y2)//2)
-PY
+  python3 "$UI_EVIDENCE" "$1" "$2" "${3:-exact}"
 }
 
 tap_text(){
   local text="$1" tag="$2" mode="${3:-exact}"
-  safe_dump "$tag-find" || return 1
   local xy
-  xy="$(find_xy "/tmp/evidence/deep/${tag}-find.xml" "$text" "$mode")" || return 1
+  local found=0
+  # Wait for the requested control, not merely the activity or loading screen.
+  # Each attempt deletes stale XML and revalidates the foreground package.
+  for attempt in $(seq 1 15); do
+    if safe_dump "$tag-find" && xy="$(find_xy "/tmp/evidence/deep/${tag}-find.xml" "$text" "$mode")"; then
+      found=1
+      break
+    fi
+    app_alive || return 1
+    sleep 1
+  done
+  [ "$found" -eq 1 ] || return 1
   adb shell input tap $xy >/dev/null 2>&1 || return 1
   sleep .8
   app_alive || return 1
@@ -219,6 +212,7 @@ else
   : > /tmp/evidence/deep/deep-crash-anr.txt
   pass "الاستقرار - Crash/ANR" "لا يوجد Crash أو ANR في سجل الجولة"
 fi
+adb shell dumpsys activity lastanr > /tmp/evidence/deep/last-anr.txt 2>&1
 adb shell dumpsys gfxinfo com.brotv.iptv > /tmp/evidence/deep/deep-gfxinfo.txt 2>/dev/null || true
 adb shell dumpsys meminfo com.brotv.iptv > /tmp/evidence/deep/deep-meminfo.txt 2>/dev/null || true
 
