@@ -6,11 +6,13 @@ base64 -d .github/redesign/fix1.b64 | gunzip > /tmp/brotvplus-redesign-fix1.patc
 base64 -d .github/redesign/fix2.b64 | gunzip > /tmp/brotvplus-redesign-fix2.patch
 base64 -d .github/redesign/fix3.b64 | gunzip > /tmp/brotvplus-redesign-fix3.patch
 base64 -d .github/redesign/fix4.b64 | gunzip > /tmp/brotvplus-redesign-fix4.patch
+base64 -d .github/redesign/fix5.b64 | gunzip > /tmp/brotvplus-redesign-fix5.patch
 cd "$PROJECT_DIR"
 patch -p1 < /tmp/brotvplus-redesign.patch
 patch -p1 < /tmp/brotvplus-redesign-fix1.patch
 patch -p1 < /tmp/brotvplus-redesign-fix2.patch
 patch -p1 < /tmp/brotvplus-redesign-fix3.patch
 patch -p1 < /tmp/brotvplus-redesign-fix4.patch
+patch -p1 < /tmp/brotvplus-redesign-fix5.patch
 
-echo 'BRO PLUS TV redesign patch + fix1 + fix2 + fix3 + fix4 applied.'
+echo 'BRO PLUS TV redesign patch + fix1 + fix2 + fix3 + fix4 + fix5 applied.'
