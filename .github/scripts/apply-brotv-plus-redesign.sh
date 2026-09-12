@@ -27,4 +27,8 @@ patch -p1 < /tmp/brotvplus-redesign-fix4.patch
 patch -p1 < /tmp/brotvplus-redesign-fix5.patch
 patch -p1 < /tmp/brotvplus-redesign-fix6.patch
 
-echo 'BRO PLUS TV redesign patch + fix1 + fix2 + fix3 + fix4 + fix5 + fix6 applied.'
+cd "$GITHUB_WORKSPACE"
+chmod +x .github/scripts/apply-brotv-fix7.sh
+.github/scripts/apply-brotv-fix7.sh
+
+echo 'BRO PLUS TV redesign patch + fix1 + fix2 + fix3 + fix4 + fix5 + fix6 + fix7 applied.'
