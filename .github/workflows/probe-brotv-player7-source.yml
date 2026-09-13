@@ -14,28 +14,45 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Probe public source page
+      - name: Probe public source API
         shell: bash
         run: |
           set -euxo pipefail
-          URL='https://firestorage.ai/ja/f/NlHCGV7KAyhU'
-          curl -L --fail --silent --show-error -D /tmp/headers.txt "$URL" -o /tmp/body
-          echo '=== headers ==='
-          cat /tmp/headers.txt
-          echo '=== file type ==='
-          file /tmp/body
-          echo '=== size ==='
-          wc -c /tmp/body
-          echo '=== first text lines ==='
-          strings /tmp/body | head -n 120 || true
-          echo '=== candidate urls ==='
+          BASE='https://firestorage.ai'
+          PAGE="$BASE/ja/f/NlHCGV7KAyhU"
+          curl -L --fail --silent --show-error "$PAGE" -o /tmp/page.html
+          JS_PATH=$(python3 - <<'PY'
+          import re, pathlib
+          t=pathlib.Path('/tmp/page.html').read_text(errors='ignore')
+          m=re.search(r'src="([^"]*app/\(files\)/ja/f/page-[^"]+\.js)"', t)
+          if not m: raise SystemExit('share-page JS not found')
+          print(m.group(1))
+          PY
+          )
+          echo "JS_PATH=$JS_PATH"
+          curl -L --fail --silent --show-error "$BASE$JS_PATH" -o /tmp/app.js
+          echo '=== JS size ==='
+          wc -c /tmp/app.js
+          echo '=== interesting API-like strings ==='
           python3 - <<'PY'
           import re, pathlib
-          text=pathlib.Path('/tmp/body').read_text(errors='ignore')
-          vals=[]
-          for m in re.finditer(r'''(?:href|src)=["']([^"']+)["']''', text, re.I):
-              u=m.group(1)
-              if any(k in u.lower() for k in ['download','api','file','zip','object','storage']):
-                  vals.append(u)
-          for u in dict.fromkeys(vals): print(u)
+          t=pathlib.Path('/tmp/app.js').read_text(errors='ignore')
+          found=[]
+          patterns=[
+              r'''["']([^"']*(?:/api/|download|share|public|file|object|storage)[^"']*)["']''',
+              r'''fetch\((.{0,240})''',
+          ]
+          for pat in patterns:
+              for m in re.finditer(pat,t,re.I):
+                  s=m.group(1)
+                  if len(s)<500: found.append(s)
+          for s in list(dict.fromkeys(found))[:250]: print(s)
+          print('=== contexts ===')
+          for kw in ['download','shareId','publicId','fileId','/api/','fetch(']:
+              pos=0; n=0
+              while n<12:
+                  i=t.lower().find(kw.lower(),pos)
+                  if i<0: break
+                  print(f'-- {kw} --',t[max(0,i-260):i+420])
+                  pos=i+len(kw); n+=1
           PY
