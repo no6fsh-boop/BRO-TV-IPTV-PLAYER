@@ -1,0 +1,18 @@
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <boolean name="parental_enabled" value="false" />
+    <boolean name="clock_24h" value="false" />
+    <boolean name="compact_library" value="false" />
+    <int name="live_layout_mode" value="0" />
+    <string name="ui_language">ar</string>
+    <string name="live_last_category">1</string>
+    <string name="live_last_group">demo</string>
+    <int name="live_cat_index" value="0" />
+    <int name="live_channel_index" value="0" />
+    <long name="position:movie:1101" value="12000" />
+    <long name="position:episode:21111" value="12000" />
+    <int name="episode_series:21111" value="2101" />
+    <int name="last_episode:2101" value="21111" />
+    <set name="watched_episodes"><string>21112</string></set>
+    <set name="favorite_movies"><string>1101</string></set>
+</map>

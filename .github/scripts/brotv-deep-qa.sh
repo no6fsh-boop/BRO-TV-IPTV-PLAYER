@@ -51,7 +51,8 @@ launch_route(){
   wake
   adb shell am force-stop com.brotv.iptv >/dev/null 2>&1 || true
   sleep .5
-  adb shell am start -n com.brotv.iptv/.MainActivity --ez BRO_DEMO true --es BRO_DEMO_ROUTE "$route" > "/tmp/evidence/deep/${tag}-start.txt" 2>&1 || true
+  adb shell am start -n com.brotv.iptv/.MainActivity --ez BRO_DEMO true --es BRO_DEMO_ROUTE "$route" > "/tmp/evidence/deep/${tag}-start.txt" 2>&1 || return 1
+  if grep -Eq 'Error:|Error type|Exception' "/tmp/evidence/deep/${tag}-start.txt"; then return 1; fi
   wait_ready "$tag"
 }
 
@@ -93,9 +94,22 @@ tap_text(){
 
 prefs(){
   local tag="$1"
-  adb exec-out run-as com.brotv.iptv sh -c 'for f in shared_prefs/*.xml; do echo "=== $f"; cat "$f"; echo; done' > "/tmp/evidence/deep/${tag}-prefs.txt" 2>/dev/null || true
+  adb exec-out run-as com.brotv.iptv cat shared_prefs/brotv_local_state.xml > "/tmp/evidence/deep/${tag}-prefs.txt" 2> "/tmp/evidence/deep/${tag}-prefs-error.txt"
 }
-prefs_changed(){ ! cmp -s "/tmp/evidence/deep/$1-prefs.txt" "/tmp/evidence/deep/$2-prefs.txt"; }
+prefs_changed(){
+  # Compare app settings only. Empty/error captures cannot count as a change,
+  # and encrypted credentials must never be included in QA preference dumps.
+  python3 - "/tmp/evidence/deep/$1-prefs.txt" "/tmp/evidence/deep/$2-prefs.txt" <<'PY'
+import sys, xml.etree.ElementTree as ET
+try:
+    roots = [ET.parse(path).getroot() for path in sys.argv[1:]]
+except (OSError, ET.ParseError):
+    raise SystemExit(1)
+if any(root.tag != 'map' for root in roots):
+    raise SystemExit(1)
+raise SystemExit(0 if ET.tostring(roots[0]) != ET.tostring(roots[1]) else 1)
+PY
+}
 
 SRC="${PROJECT_DIR:-/tmp/project}/app/src/main/java/com/brotv/iptv"
 if grep -q 'Text(category.name,color=Color.White' "$SRC/ui/screens/settings/SettingsScreen.kt"; then
@@ -168,8 +182,14 @@ done
 for spec in "مسح قنوات السجل|clear-live" "مسح تاريخ الأفلام|clear-movies" "مسح تاريخ المسلسلات|clear-series"; do
   item="${spec%%|*}"; tag="${spec##*|}"
   launch_route settings "$tag" >/dev/null 2>&1 || { fail "الإعدادات - $item" "تعذر تشغيل الإعدادات"; continue; }
+  prefs "$tag-before"
   adb shell input swipe 1000 930 1000 420 450 >/dev/null 2>&1 || true; sleep 1
-  if tap_text "$item" "$tag"; then pass "الإعدادات - $item" "البطاقة السفلية ظهرت بعد التمرير واستجابت دون انهيار"; else fail "الإعدادات - $item" "تعذر الوصول للبطاقة بعد التمرير"; fi
+  if tap_text "$item" "$tag"; then
+    prefs "$tag-after"
+    if python3 "$SCRIPT_DIR/brotv-history-evidence.py" "/tmp/evidence/deep/${tag}-before-prefs.txt" "/tmp/evidence/deep/${tag}-after-prefs.txt" "$tag"; then
+      pass "الإعدادات - $item" "ظهرت البطاقة ومسحت السجل المحفوظ دون تغيير الإعدادات الأخرى"
+    else fail "الإعدادات - $item" "لم يتحقق مسح السجل المحفوظ"; fi
+  else fail "الإعدادات - $item" "تعذر الوصول للبطاقة بعد التمرير"; fi
 done
 
 launch_route home home-refresh >/dev/null 2>&1 || true

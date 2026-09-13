@@ -8,6 +8,7 @@ on:
       - '.github/scripts/apply-brotv-demo-hook.sh'
       - '.github/scripts/brotv-demo-server.py'
       - '.github/scripts/brotv-ui-evidence.py'
+      - '.github/scripts/brotv-history-evidence.py'
       - '.github/scripts/tests/**'
       - '.github/tests/**'
 
@@ -108,6 +109,13 @@ jobs:
       - name: Run detailed functional tests
         if: ${{ !cancelled() && steps.emulator.outcome == 'success' }}
         run: |
+          # AGP's test platform uninstalls the target APK after instrumentation.
+          # Reinstall and seed only this disposable demo app's local QA state.
+          adb install -r /tmp/BRO-PLUS-TV-DEEP-QA.apk
+          adb shell am force-stop com.brotv.iptv
+          adb push .github/tests/demo-local-state.xml /data/local/tmp/brotv-qa-state.xml
+          adb shell run-as com.brotv.iptv mkdir -p shared_prefs
+          adb shell run-as com.brotv.iptv cp /data/local/tmp/brotv-qa-state.xml shared_prefs/brotv_local_state.xml
           chmod +x .github/scripts/brotv-deep-qa.sh
           .github/scripts/brotv-deep-qa.sh
       - name: Upload deep QA evidence
