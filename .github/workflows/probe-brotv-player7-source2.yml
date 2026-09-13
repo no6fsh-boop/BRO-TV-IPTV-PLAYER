@@ -1,0 +1,54 @@
+name: Probe BROTV Player 7 source API 2
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - build/brotv-player7
+    paths:
+      - '.github/workflows/probe-brotv-player7-source2.yml'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe public source API
+        shell: bash
+        run: |
+          set -euxo pipefail
+          BASE='https://firestorage.ai'
+          PAGE="$BASE/ja/f/NlHCGV7KAyhU"
+          curl -L --fail --silent --show-error "$PAGE" -o /tmp/page.html
+          JS_PATH=$(python3 - <<'PY'
+          import re, pathlib
+          t=pathlib.Path('/tmp/page.html').read_text(errors='ignore')
+          m=re.search(r'src="([^"]*app/\(files\)/ja/f/page-[^"]+\.js)"', t)
+          if not m: raise SystemExit('share-page JS not found')
+          print(m.group(1))
+          PY
+          )
+          echo "JS_PATH=$JS_PATH"
+          curl -L --fail --silent --show-error "$BASE$JS_PATH" -o /tmp/app.js
+          echo '=== JS size ==='
+          wc -c /tmp/app.js
+          python3 - <<'PY'
+          import re, pathlib
+          t=pathlib.Path('/tmp/app.js').read_text(errors='ignore')
+          print('=== string literals matching keywords ===')
+          out=[]
+          for m in re.finditer(r'''["']([^"']{1,500})["']''', t):
+              s=m.group(1)
+              if any(k in s.lower() for k in ['/api/','download','share','publicid','fileid','object','storage']):
+                  out.append(s)
+          for s in list(dict.fromkeys(out))[:300]: print(s)
+          print('=== keyword contexts ===')
+          for kw in ['download','shareId','publicId','fileId','/api/','fetch(']:
+              start=0
+              for _ in range(20):
+                  i=t.lower().find(kw.lower(), start)
+                  if i<0: break
+                  print('\n--',kw,'--\n',t[max(0,i-350):i+700])
+                  start=i+len(kw)
+          PY
