@@ -14,10 +14,10 @@ jobs:
     timeout-minutes: 30
     env:
       API_BASE: https://api.firestorage.ai/dev/file
-      SHARE_ID: fwUJx9CpOWdT
-      FILE_ID: 01a09d2db4e172258bf311acdd6acedf
-      EXPECTED_SIZE: '3555326'
-      EXPECTED_SHA256: 72f23cedbd68f2fa1c8371e4e43450e140844709b640a39a1af8279ce8e3bc59
+      SHARE_ID: chzsei9VwzfB
+      FILE_ID: 01a09d33af9073748ed820c690a273eb
+      EXPECTED_SIZE: '3555312'
+      EXPECTED_SHA256: bdf2aa00aac896c7cf0ee3ed9b045ecc56fd612bd31bcc44863ef5728e2f6f9e
     steps:
       - name: Checkout CI branch
         uses: actions/checkout@v4
