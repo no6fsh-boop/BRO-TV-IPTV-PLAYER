@@ -1,0 +1,45 @@
+name: Publish Downloader APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/publish-downloader-apk.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build installable APK
+        run: gradle assembleDebug
+
+      - name: Publish stable direct-download release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk BRO-PLUS-TV.apk
+          if gh release view bro-plus-tv-latest >/dev/null 2>&1; then
+            gh release upload bro-plus-tv-latest BRO-PLUS-TV.apk --clobber
+          else
+            gh release create bro-plus-tv-latest BRO-PLUS-TV.apk \
+              --title 'BRO PLUS TV' \
+              --notes 'Installable Android TV APK for BRO PLUS TV.'
+          fi
