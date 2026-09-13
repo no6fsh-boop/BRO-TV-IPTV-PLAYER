@@ -124,9 +124,9 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf /tmp/brotv-toolchain
-          mkdir -p /tmp/brotv-toolchain/sdk /tmp/brotv-toolchain/project-wrapper /tmp/brotv-toolchain/gradle-home
-          cp -a "$ANDROID_HOME/platforms" /tmp/brotv-toolchain/sdk/
-          cp -a "$ANDROID_HOME/build-tools" /tmp/brotv-toolchain/sdk/
+          mkdir -p /tmp/brotv-toolchain/sdk/platforms /tmp/brotv-toolchain/sdk/build-tools /tmp/brotv-toolchain/project-wrapper /tmp/brotv-toolchain/gradle-home
+          cp -a "$ANDROID_HOME/platforms/android-34" /tmp/brotv-toolchain/sdk/platforms/
+          cp -a "$ANDROID_HOME/build-tools/34.0.0" /tmp/brotv-toolchain/sdk/build-tools/
           cp -a "$ANDROID_HOME/platform-tools" /tmp/brotv-toolchain/sdk/
           cp -a "$ANDROID_HOME/licenses" /tmp/brotv-toolchain/sdk/
           cp -a /tmp/brotv-dummy/gradlew /tmp/brotv-toolchain/project-wrapper/
