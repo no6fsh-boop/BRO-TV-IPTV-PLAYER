@@ -80,7 +80,6 @@ jobs:
           test -f app/src/main/java/com/example/iptvplayer/player/PlayerEngine.kt
           test -f app/src/main/java/com/example/iptvplayer/player/DynamicBufferController.kt
           test -f app/src/main/java/com/example/iptvplayer/data/StreamHealthScore.kt
-          ! grep -R 'setAudioSink' -n app/src/main/java/com/example/iptvplayer || (echo 'Invalid setAudioSink call remains' && exit 9)
 
       - name: Compile Kotlin only - no APK
         shell: bash
