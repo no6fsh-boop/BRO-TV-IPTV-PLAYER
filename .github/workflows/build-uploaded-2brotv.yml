@@ -1,45 +1,123 @@
-name: Publish Exact 2BROTV APK
+name: Build Developed BROTV APK
 
 on:
   push:
     branches:
-      - build/uploaded-2brotv-20260913
+      - build/developed-brotv-20260913
     paths:
       - '.github/workflows/build-uploaded-2brotv.yml'
+  workflow_dispatch:
 
 permissions:
   contents: write
   actions: read
 
 jobs:
-  publish:
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
+    env:
+      API_BASE: https://api.firestorage.ai/dev/file
+      SHARE_ID: XewtVrV4C3MA
+      FILE_ID: 01a09ca43377765fb43afe612964dd02
+      EXPECTED_SIZE: '3541677'
+      EXPECTED_SHA256: 284cd5c7e87a41befac2722ed6517668732ae8ea372264658820c1762d450c0b
     steps:
-      - name: Checkout destination branch
+      - name: Checkout build branch
         uses: actions/checkout@v4
         with:
-          ref: build/uploaded-2brotv-20260913
+          ref: build/developed-brotv-20260913
 
-      - name: Download APK from successful exact-source build
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 34
+        shell: bash
         run: |
           set -euo pipefail
-          rm -rf /tmp/exact-apk
-          mkdir -p /tmp/exact-apk
-          gh run download 34777865519 --repo "$GITHUB_REPOSITORY" --name 2BROTV-Player-Exact-APK --dir /tmp/exact-apk
-          test -f /tmp/exact-apk/2BROTV_Player.apk
-          echo 'afc8bba65c138b1a1f4a73c7249f1a26da70e8faf994b4274db03a92fd16604a  /tmp/exact-apk/2BROTV_Player.apk' | sha256sum -c -
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
 
-      - name: Publish direct APK on branch
+      - name: Set up Gradle 8.6
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.6'
+
+      - name: Download exact developed source uploaded by user
+        shell: bash
         run: |
           set -euo pipefail
-          mkdir -p built-apk-exact
-          cp /tmp/exact-apk/2BROTV_Player.apk built-apk-exact/2BROTV_Player.apk
-          cp /tmp/exact-apk/2BROTV_Player.apk.sha256 built-apk-exact/2BROTV_Player.apk.sha256
+          rm -rf /tmp/brotv-developed
+          mkdir -p /tmp/brotv-developed
+          cd /tmp/brotv-developed
+          curl -fsSL -X POST "$API_BASE/shares/$SHARE_ID/files/$FILE_ID/download" -o download.json
+          python3 - <<'PY'
+          import json, pathlib, subprocess, sys
+          d=json.loads(pathlib.Path('download.json').read_text())
+          url=d.get('downloadUrl')
+          if not url:
+              print(d)
+              sys.exit(3)
+          subprocess.run(['curl','-fL','--retry','3',url,'-o','source.zip'],check=True)
+          PY
+          test "$(stat -c%s source.zip)" = "$EXPECTED_SIZE"
+          echo "$EXPECTED_SHA256  source.zip" | sha256sum -c -
+          unzip -t source.zip >/dev/null
+          unzip -q source.zip -d source
+          PROJECT_DIR="$(dirname "$(find source -name settings.gradle.kts -print -quit)")"
+          test -n "$PROJECT_DIR"
+          echo "PROJECT_DIR=$PWD/$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Project: $PWD/$PROJECT_DIR"
+
+      - name: Verify developed project identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          grep -q 'com.example.iptvplayer' app/build.gradle.kts
+          test -f app/src/main/java/com/example/iptvplayer/player/PlayerEngine.kt
+          test -f app/src/main/java/com/example/iptvplayer/data/ProviderHealthChecker.kt
+          test -f app/src/main/java/com/example/iptvplayer/data/db/AppDatabase.kt
+          echo 'Developed BROTV source identity verified.'
+
+      - name: Build debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          gradle --no-daemon --stacktrace :app:assembleDebug
+          APK="$(find app/build/outputs/apk/debug -type f -name '*.apk' -print -quit)"
+          test -f "$APK"
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          cp "$APK" "$GITHUB_WORKSPACE/out/BROTV_Developed.apk"
+          sha256sum "$GITHUB_WORKSPACE/out/BROTV_Developed.apk" | tee "$GITHUB_WORKSPACE/out/BROTV_Developed.apk.sha256"
+          ls -lh "$GITHUB_WORKSPACE/out/BROTV_Developed.apk"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BROTV-Developed-APK
+          path: |
+            out/BROTV_Developed.apk
+            out/BROTV_Developed.apk.sha256
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Publish direct APK on build branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p built-apk-developed
+          cp out/BROTV_Developed.apk built-apk-developed/BROTV_Developed.apk
+          cp out/BROTV_Developed.apk.sha256 built-apk-developed/BROTV_Developed.apk.sha256
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add built-apk-exact/2BROTV_Player.apk built-apk-exact/2BROTV_Player.apk.sha256
-          git commit -m 'artifact: publish exact uploaded 2BROTV APK' || exit 0
-          git push origin HEAD:build/uploaded-2brotv-20260913
+          git add built-apk-developed/BROTV_Developed.apk built-apk-developed/BROTV_Developed.apk.sha256
+          git commit -m 'artifact: publish developed BROTV APK' || exit 0
+          git push origin HEAD:build/developed-brotv-20260913
