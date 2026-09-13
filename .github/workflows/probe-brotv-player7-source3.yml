@@ -1,0 +1,59 @@
+name: Probe BROTV Player 7 source API 3
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - build/brotv-player7
+    paths:
+      - '.github/workflows/probe-brotv-player7-source3.yml'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe all firestorage share JS chunks
+        shell: bash
+        run: |
+          set -euxo pipefail
+          BASE='https://firestorage.ai'
+          PAGE="$BASE/ja/f/NlHCGV7KAyhU"
+          curl -L --fail --silent --show-error "$PAGE" -o /tmp/page.html
+          python3 - <<'PY' > /tmp/scripts.txt
+          import re, pathlib
+          t=pathlib.Path('/tmp/page.html').read_text(errors='ignore')
+          for u in dict.fromkeys(re.findall(r'<script[^>]+src="([^"]+\.js)"',t)):
+              print(u)
+          PY
+          cat /tmp/scripts.txt
+          mkdir -p /tmp/js
+          i=0
+          while IFS= read -r path; do
+            i=$((i+1))
+            curl -L --fail --silent --show-error "$BASE$path" -o "/tmp/js/$i.js"
+            echo "$i $(wc -c < /tmp/js/$i.js) $path"
+          done < /tmp/scripts.txt
+          cat /tmp/js/*.js > /tmp/all.js
+          echo '=== total JS bytes ==='
+          wc -c /tmp/all.js
+          echo '=== keyword strings/contexts ==='
+          python3 - <<'PY'
+          import re, pathlib
+          t=pathlib.Path('/tmp/all.js').read_text(errors='ignore')
+          out=[]
+          for m in re.finditer(r'''["']([^"']{1,700})["']''', t):
+              s=m.group(1)
+              if any(k in s.lower() for k in ['/api/','download','share','publicid','fileid','signed','presign','object','storage','blob']):
+                  out.append(s)
+          for s in list(dict.fromkeys(out))[:500]: print('STR:',s)
+          print('=== CONTEXTS ===')
+          for kw in ['download','shareId','publicId','fileId','/api/','fetch(','signed','presign']:
+              start=0
+              for _ in range(30):
+                  i=t.lower().find(kw.lower(),start)
+                  if i<0: break
+                  print(f'\n-- {kw} --\n{t[max(0,i-500):i+900]}')
+                  start=i+len(kw)
+          PY
