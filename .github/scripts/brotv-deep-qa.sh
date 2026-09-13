@@ -12,6 +12,16 @@ pass(){ echo "PASS | $1 | $2" | tee -a "$RESULTS"; }
 fail(){ echo "FAIL | $1 | $2" | tee -a "$RESULTS"; FAIL=1; }
 info(){ echo "INFO | $1 | $2" | tee -a "$RESULTS"; }
 app_alive(){ adb shell pidof com.brotv.iptv 2>/dev/null | grep -q '[0-9]'; }
+frame_count(){ adb logcat -d -v brief -s BRO_QA_PLAYER:I '*:S' 2>/dev/null | grep -c FIRST_FRAME || true; }
+wait_frame(){
+  local before="$1"
+  for attempt in $(seq 1 20); do
+    [ "$(frame_count)" -gt "$before" ] && return 0
+    app_alive || return 1
+    sleep 1
+  done
+  return 1
+}
 focused(){ adb shell dumpsys window 2>/dev/null | grep 'mCurrentFocus' | grep -q 'com.brotv.iptv'; }
 
 wake(){
@@ -201,10 +211,11 @@ if tap_text "التحديث" home-refresh; then
   if [ "$after_req" -gt "$before_req" ] && grep -q 'التحديث' /tmp/evidence/deep/home-refresh-after.xml 2>/dev/null; then pass "الرئيسية - التحديث" "نفّذ تحديثًا فعليًا وبقي على الرئيسية"; else fail "الرئيسية - التحديث" "لم يثبت طلب تحديث فعلي مع البقاء على الرئيسية"; fi
 else fail "الرئيسية - التحديث" "تعذر الضغط على زر التحديث"; fi
 
+live_frames_before=$(frame_count)
 if launch_route live_tv live; then
   if tap_text "قناة السعودية" live-first prefix; then
     sleep 2; safe_dump live-preview || true
-    if app_alive && focused; then pass "البث المباشر - تشغيل المعاينة" "اختيار قناة السعودية شغّل المعاينة وبقي التطبيق مستقرًا"; else fail "البث المباشر - تشغيل المعاينة" "فقد التطبيق الحياة/التركيز بعد اختيار القناة"; fi
+    if wait_frame "$live_frames_before" && focused; then pass "البث المباشر - تشغيل المعاينة" "أثبت المشغل عرض أول إطار فيديو للقناة التجريبية"; else fail "البث المباشر - تشغيل المعاينة" "لم يثبت عرض إطار فيديو بعد اختيار القناة"; fi
     if tap_text "قناة السعودية" live-second prefix; then
       sleep 2; safe_dump live-fullscreen || true
       if grep -Eq 'الجودة|المصدر|الآن' /tmp/evidence/deep/live-fullscreen.xml 2>/dev/null; then pass "البث المباشر - فتح ملء الشاشة" "ظهر Overlay البث في ملء الشاشة"; else fail "البث المباشر - فتح ملء الشاشة" "لم يظهر Overlay المتوقع"; fi
@@ -221,11 +232,13 @@ if launch_route live_tv live; then
   else fail "البث المباشر - تشغيل المعاينة" "لم تظهر قناة السعودية التجريبية في واجهة التطبيق"; fi
 else fail "البث المباشر - فتح الشاشة" "المسار لم يصبح جاهزًا"; fi
 
+series_frames_before=$(frame_count)
 if launch_route series series; then
   if tap_text "مسلسل تجريبي" series-card prefix; then
     sleep 2; safe_dump series-details || true
     if grep -Eq 'الموسم|الحلقة|مسلسل تجريبي' /tmp/evidence/deep/series-details.xml 2>/dev/null; then pass "المسلسلات - صفحة التفاصيل" "تفاصيل المسلسل والمواسم/الحلقات ظهرت"; else fail "المسلسلات - صفحة التفاصيل" "تفاصيل المسلسل لم تظهر"; fi
     if tap_text "الحلقة" series-episode prefix; then
+      if wait_frame "$series_frames_before"; then pass "المسلسلات - تشغيل حلقة" "أثبت المشغل عرض أول إطار فيديو للحلقة"; else fail "المسلسلات - تشغيل حلقة" "لم يثبت عرض إطار فيديو للحلقة"; fi
       sleep 3; adb shell input keyevent KEYCODE_DPAD_UP >/dev/null 2>&1 || true; sleep 1; safe_dump series-player-controls || true
       if grep -Eq '16:9|4:5|9:16|ترجم|التالي|السابق|15' /tmp/evidence/deep/series-player-controls.xml 2>/dev/null; then pass "مشغل المسلسلات - أدوات التحكم" "ظهرت أدوات من مجموعة التالي/السابق/الترجمة/±15/نسب العرض"; else fail "مشغل المسلسلات - أدوات التحكم" "أدوات التحكم المطلوبة غير ظاهرة في واجهة الوصول"; fi
       if app_alive && focused; then pass "مشغل المسلسلات - الاستقرار" "المشغل بقي حيًا ومركزًا بعد التحكم"; else fail "مشغل المسلسلات - الاستقرار" "المشغل فقد التطبيق/التركيز"; fi
@@ -233,12 +246,18 @@ if launch_route series series; then
   else fail "المسلسلات - فتح مسلسل" "لم أجد مسلسلًا تجريبيًا قابلاً للاختيار"; fi
 else fail "المسلسلات - فتح الشاشة" "المسار لم يصبح جاهزًا"; fi
 
-adb logcat -d -v time > /tmp/evidence/deep/deep-logcat.txt 2>/dev/null || true
-if grep -E 'FATAL EXCEPTION|ANR in com\.brotv\.iptv' /tmp/evidence/deep/deep-logcat.txt > /tmp/evidence/deep/deep-crash-anr.txt; then
+logcat_ok=1
+adb logcat -d -v time > /tmp/evidence/deep/deep-logcat.txt 2>/dev/null || logcat_ok=0
+if [ "$logcat_ok" -ne 1 ] || ! app_alive; then
+  fail "الاستقرار - Crash/ANR" "تعذر الحصول على سجل موثوق أو أن التطبيق غير مشغل"
+elif grep -E 'FATAL EXCEPTION|ANR in com\.brotv\.iptv' /tmp/evidence/deep/deep-logcat.txt > /tmp/evidence/deep/deep-crash-anr.txt; then
   fail "الاستقرار - Crash/ANR" "تم العثور على Crash أو ANR في الجولة التفصيلية"
 else
   : > /tmp/evidence/deep/deep-crash-anr.txt
   pass "الاستقرار - Crash/ANR" "لا يوجد Crash أو ANR في سجل الجولة"
+fi
+if grep 'BRO_QA_PLAYER.*PLAYER_ERROR' /tmp/evidence/deep/deep-logcat.txt > /tmp/evidence/deep/player-errors.txt; then
+  fail "المشغل - أخطاء التشغيل" "سجل المشغل خطأ فعليًا أثناء الجولة"
 fi
 adb shell dumpsys activity lastanr > /tmp/evidence/deep/last-anr.txt 2>&1
 adb shell dumpsys gfxinfo com.brotv.iptv > /tmp/evidence/deep/deep-gfxinfo.txt 2>/dev/null || true

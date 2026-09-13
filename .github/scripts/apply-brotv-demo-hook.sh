@@ -24,5 +24,22 @@ new2='''    val startDestination = startDestinationOverride ?: if (credentialSto
 if old2 not in text:
     raise SystemExit('startDestination anchor not found')
 nav.write_text(text.replace(old2,new2,1))
+app=root/'app/src/main/java/com/brotv/iptv/BroTvApplication.kt'
+text=app.read_text()
+anchor='        mediaSession = MediaSession.Builder(this, player).build()'
+observer='''        // QA build only: prove renderer output without logging stream credentials.
+        val qaSession = System.nanoTime()
+        player.addListener(object : androidx.media3.common.Player.Listener {
+            override fun onRenderedFirstFrame() {
+                android.util.Log.i("BRO_QA_PLAYER", "FIRST_FRAME session=$qaSession")
+            }
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                android.util.Log.e("BRO_QA_PLAYER", "PLAYER_ERROR code=${error.errorCode} session=$qaSession")
+            }
+        })
+'''
+if text.count(anchor)!=1:
+    raise SystemExit('Player observation anchor not found')
+app.write_text(text.replace(anchor,observer+anchor,1))
 print('Demo hook applied (explicit intent extra, QA build only).')
 PY
