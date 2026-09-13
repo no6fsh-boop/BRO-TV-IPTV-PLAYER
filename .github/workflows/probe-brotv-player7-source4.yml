@@ -1,0 +1,58 @@
+name: Probe BROTV Player 7 source API 4
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - build/brotv-player7
+    paths:
+      - '.github/workflows/probe-brotv-player7-source4.yml'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve firestorage API base
+        shell: bash
+        run: |
+          set -euxo pipefail
+          BASE='https://firestorage.ai'
+          PAGE="$BASE/ja/f/NlHCGV7KAyhU"
+          curl -LfsS "$PAGE" -o /tmp/page.html
+          python3 - <<'PY' > /tmp/scripts.txt
+          import re, pathlib
+          t=pathlib.Path('/tmp/page.html').read_text(errors='ignore')
+          for u in dict.fromkeys(re.findall(r'<script[^>]+src="([^"]+\.js)"',t)):
+              print(u)
+          PY
+          mkdir -p /tmp/js
+          i=0
+          while IFS= read -r path; do
+            i=$((i+1))
+            curl -LfsS "$BASE$path" -o "/tmp/js/$i.js"
+          done < /tmp/scripts.txt
+          cat /tmp/js/*.js > /tmp/all.js
+          python3 - <<'PY'
+          import pathlib
+          t=pathlib.Path('/tmp/all.js').read_text(errors='ignore')
+          marker='9280:(e,a,l)=>'
+          i=t.find(marker)
+          print('MARKER',i)
+          print(t[i:i+7000] if i>=0 else 'module not found')
+          PY
+          echo '=== endpoint probes ==='
+          for u in \
+            'https://firestorage.ai/api/shares/NlHCGV7KAyhU/files?maxResults=1000' \
+            'https://firestorage.ai/shares/NlHCGV7KAyhU/files?maxResults=1000' \
+            'https://api.firestorage.ai/shares/NlHCGV7KAyhU/files?maxResults=1000' \
+            'https://firestorage.ai/api/v1/shares/NlHCGV7KAyhU/files?maxResults=1000' \
+            'https://firestorage.ai/api/files/shares/NlHCGV7KAyhU/files?maxResults=1000'
+          do
+            echo "URL=$u"
+            code=$(curl -L -sS -o /tmp/r -w '%{http_code}' "$u" || true)
+            echo "CODE=$code TYPE=$(file -b /tmp/r 2>/dev/null || true) SIZE=$(wc -c < /tmp/r 2>/dev/null || echo 0)"
+            head -c 800 /tmp/r || true
+            echo
+          done
