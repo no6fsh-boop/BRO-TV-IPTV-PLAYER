@@ -1,0 +1,38 @@
+name: Probe BROTV Player 7 API base quick
+
+on:
+  push:
+    branches: [build/brotv-player7]
+    paths: ['.github/workflows/probe-brotv-player7-source5.yml']
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Print share module prefix
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://firestorage.ai'
+          curl -LfsS "$BASE/ja/f/NlHCGV7KAyhU" -o /tmp/page
+          python3 - <<'PY' >/tmp/scripts
+          import re,pathlib
+          t=pathlib.Path('/tmp/page').read_text(errors='ignore')
+          for s in dict.fromkeys(re.findall(r'<script[^>]+src="([^"]+\.js)"',t)): print(s)
+          PY
+          : >/tmp/all
+          while IFS= read -r s; do curl --max-time 10 -LfsS "$BASE$s" >>/tmp/all; done </tmp/scripts
+          python3 - <<'PY'
+          import pathlib,re
+          t=pathlib.Path('/tmp/all').read_text(errors='ignore')
+          for marker in ['9280:(e,a,l)=>','let f=','api.firestorage','/api']:
+              print('###',marker)
+              pos=0
+              for n in range(8):
+                  i=t.find(marker,pos)
+                  if i<0: break
+                  print(t[max(0,i-200):i+1800])
+                  pos=i+len(marker)
+          PY
