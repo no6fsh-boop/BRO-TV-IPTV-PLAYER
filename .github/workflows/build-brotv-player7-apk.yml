@@ -1,0 +1,110 @@
+name: Build BROTV Player 7 APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [build/brotv-player7]
+    paths: ['.github/workflows/build-brotv-player7-apk.yml']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download exact BROTV Player 7 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          API='https://api.firestorage.ai/dev/file'
+          SHARE='NlHCGV7KAyhU'
+          EXPECTED_SHA='246c48450b3d66d7055053bd5f8968fb0e36619d9f39aba387b7b29b199505fb'
+          EXPECTED_SIZE='3520820'
+
+          curl --retry 3 --retry-delay 2 --max-time 30 -LfsS \
+            "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/files.json
+
+          python3 - <<'PY' >/tmp/file_id
+          import json
+          data=json.load(open('/tmp/files.json'))
+          files=data.get('files',[])
+          wanted=[f for f in files if f.get('fileName')=='BROTV_Player(7).zip']
+          if not wanted:
+              raise SystemExit('BROTV_Player(7).zip not found in share')
+          f=wanted[0]
+          print(f['fileId'])
+          assert int(f.get('sizeBytes',0)) == 3520820, f"unexpected source size: {f.get('sizeBytes')}"
+          PY
+          FILE_ID=$(cat /tmp/file_id)
+          echo "Resolved source file id: $FILE_ID"
+
+          curl --retry 3 --retry-delay 2 --max-time 30 -LfsS -X POST \
+            "$API/shares/$SHARE/files/$FILE_ID/download" -o /tmp/download.json
+          DOWNLOAD_URL=$(python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/download.json'))
+          u=d.get('downloadUrl')
+          if not u: raise SystemExit('downloadUrl missing')
+          print(u)
+          PY
+          )
+          curl --retry 3 --retry-delay 2 --max-time 120 -LfsS "$DOWNLOAD_URL" -o /tmp/BROTV_Player7.zip
+
+          test "$(stat -c '%s' /tmp/BROTV_Player7.zip)" = "$EXPECTED_SIZE"
+          echo "$EXPECTED_SHA  /tmp/BROTV_Player7.zip" | sha256sum -c -
+          unzip -tq /tmp/BROTV_Player7.zip
+          rm -rf /tmp/player7
+          mkdir -p /tmp/player7
+          unzip -q /tmp/BROTV_Player7.zip -d /tmp/player7
+          test -f /tmp/player7/IPTVPlayer/settings.gradle.kts
+          echo 'PROJECT_DIR=/tmp/player7/IPTVPlayer' >> "$GITHUB_ENV"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 34
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platform-tools' 'platforms;android-34' 'build-tools;34.0.0'
+
+      - name: Set up Gradle 8.6
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.6'
+
+      - name: Build debug APK
+        shell: bash
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -euo pipefail
+          gradle --version
+          gradle --no-daemon --stacktrace --console=plain :app:assembleDebug
+
+      - name: Prepare APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=$(find "$PROJECT_DIR/app/build/outputs/apk/debug" -maxdepth 1 -type f -name '*.apk' | head -n 1)
+          test -n "$APK"
+          cp "$APK" "$GITHUB_WORKSPACE/BROTV-Player7.apk"
+          sha256sum "$GITHUB_WORKSPACE/BROTV-Player7.apk" | tee "$GITHUB_WORKSPACE/BROTV-Player7.apk.sha256"
+          ls -lh "$GITHUB_WORKSPACE/BROTV-Player7.apk"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BROTV-Player7-APK
+          path: |
+            BROTV-Player7.apk
+            BROTV-Player7.apk.sha256
+          if-no-files-found: error
+          retention-days: 14
