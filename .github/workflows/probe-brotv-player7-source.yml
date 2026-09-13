@@ -1,0 +1,41 @@
+name: Probe BROTV Player 7 source
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - build/brotv-player7
+    paths:
+      - '.github/workflows/probe-brotv-player7-source.yml'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe public source page
+        shell: bash
+        run: |
+          set -euxo pipefail
+          URL='https://firestorage.ai/ja/f/NlHCGV7KAyhU'
+          curl -L --fail --silent --show-error -D /tmp/headers.txt "$URL" -o /tmp/body
+          echo '=== headers ==='
+          cat /tmp/headers.txt
+          echo '=== file type ==='
+          file /tmp/body
+          echo '=== size ==='
+          wc -c /tmp/body
+          echo '=== first text lines ==='
+          strings /tmp/body | head -n 120 || true
+          echo '=== candidate urls ==='
+          python3 - <<'PY'
+          import re, pathlib
+          text=pathlib.Path('/tmp/body').read_text(errors='ignore')
+          vals=[]
+          for m in re.finditer(r'''(?:href|src)=["']([^"']+)["']''', text, re.I):
+              u=m.group(1)
+              if any(k in u.lower() for k in ['download','api','file','zip','object','storage']):
+                  vals.append(u)
+          for u in dict.fromkeys(vals): print(u)
+          PY
