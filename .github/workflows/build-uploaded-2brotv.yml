@@ -1,4 +1,4 @@
-name: BROTV Exact Source Download Probe
+name: BROTV Exact Source API Probe
 
 on:
   push:
@@ -11,54 +11,42 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Probe exact uploaded source share
+      - name: Isolate exact source download API
         shell: bash
         env:
           SHARE_URL: https://firestorage.ai/ja/f/GFj2k3kXNlKS
-          PUBLIC_ID: o4vHfa0oAn6vWJNR
-          FILE_ID: 01a09c3dea0d736bb8f4acaa1f0aed0c
         run: |
           set -euo pipefail
           mkdir -p /tmp/probe && cd /tmp/probe
           curl -fsSL -A 'Mozilla/5.0' "$SHARE_URL" -o page.html
-          echo '=== HTML useful lines ==='
-          grep -Eo 'https?://[^"<> ]+|src="[^"]+\.js[^"]*"|href="[^"]+"' page.html | head -200 || true
-          echo '=== scripts ==='
           python3 - <<'PY'
           import re, html, urllib.parse, subprocess, pathlib, os
-          t=pathlib.Path('page.html').read_text(errors='ignore')
-          t=html.unescape(t).replace('\\/','/')
+          t=html.unescape(pathlib.Path('page.html').read_text(errors='ignore')).replace('\\/','/')
           scripts=[]
           for m in re.finditer(r'<script[^>]+src=["\']([^"\']+)["\']',t,re.I):
               u=urllib.parse.urljoin(os.environ['SHARE_URL'],m.group(1))
               if u not in scripts: scripts.append(u)
-          print('count',len(scripts))
           for i,u in enumerate(scripts):
-              print(i,u)
-              try:
-                  subprocess.run(['curl','-fsSL','-A','Mozilla/5.0',u,'-o',f's{i}.js'],check=True)
-              except Exception as e:
-                  print('ERR',e)
-          needles=['download','presign','signed','/api/','public_id','publicId','file_id','fileId','share','storage','r2','s3','blob']
+              try: subprocess.run(['curl','-fsSL','-A','Mozilla/5.0',u,'-o',f's{i}.js'],check=True)
+              except Exception: pass
           for i in range(len(scripts)):
               p=pathlib.Path(f's{i}.js')
               if not p.exists(): continue
               js=p.read_text(errors='ignore')
-              hits=[]
-              for needle in needles:
-                  for m in re.finditer(re.escape(needle),js,re.I):
-                      s=max(0,m.start()-220); e=min(len(js),m.end()+420)
-                      sn=js[s:e].replace('\n',' ')
-                      if sn not in hits: hits.append(sn)
-                      if len(hits)>=12: break
-                  if len(hits)>=12: break
-              if hits:
-                  print(f'\n=== JS {i} hits ({len(js)} bytes) ===')
-                  for h in hits: print(h[:900])
-          print('\n=== HTML ids ===')
-          for needle in [os.environ['PUBLIC_ID'],os.environ['FILE_ID'],'2BROTV_Player.zip']:
-              print(needle, needle in t)
-              if needle in t:
-                  pos=t.find(needle); print(t[max(0,pos-600):pos+1200])
+              strings=[]
+              for m in re.finditer(r'(["\'])(.{1,360}?)\1',js):
+                  s=m.group(2)
+                  ls=s.lower()
+                  if any(k in ls for k in ['download','presign','signed','/api','objects/','files/','share','publicid','fileid','prepare']):
+                      if s not in strings: strings.append(s)
+              if strings:
+                  print(f'\n### STRINGS JS {i} {scripts[i]} bytes={len(js)}')
+                  for s in strings[:220]: print(s)
+              for key in ['downloadUrl','download_url','download-url','prepareDownload','createDownload','signedUrl','presignedUrl','objects/','/api/']:
+                  loc=[m.start() for m in re.finditer(re.escape(key),js,re.I)]
+                  if loc:
+                      print(f'\n### CONTEXT JS {i} key={key} count={len(loc)}')
+                      for pos in loc[:20]:
+                          print(js[max(0,pos-700):min(len(js),pos+1400)].replace('\n',' ')[:2100])
           PY
           exit 1
