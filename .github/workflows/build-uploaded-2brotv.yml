@@ -1,0 +1,123 @@
+name: Build Uploaded 2BROTV APK
+
+on:
+  push:
+    branches:
+      - build/uploaded-2brotv-20260913
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 34
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+
+      - name: Set up Gradle 8.6
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.6'
+
+      - name: Download exact uploaded source archive
+        shell: bash
+        env:
+          SHARE_URL: https://firestorage.ai/ja/f/fRZ-A6rpIrhW
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/brotv-source
+          cd /tmp/brotv-source
+          curl -fsSL -A 'Mozilla/5.0' "$SHARE_URL" -o share.html
+          python3 - <<'PY'
+          import html, os, re, subprocess, sys, urllib.parse
+          from pathlib import Path
+
+          base = os.environ['SHARE_URL']
+          text = Path('share.html').read_text(errors='ignore')
+          text = html.unescape(text).replace('\\u0026','&').replace('\\/','/')
+          urls = []
+          for m in re.finditer(r'https?://[^\s"\'<>]+', text):
+              urls.append(m.group(0))
+          for m in re.finditer(r'(?:href|src)=["\']([^"\']+)["\']', text):
+              urls.append(urllib.parse.urljoin(base, m.group(1)))
+          for m in re.finditer(r'["\']([^"\']*(?:download|file|raw|storage)[^"\']*)["\']', text, re.I):
+              u = m.group(1)
+              if u.startswith('/'):
+                  urls.append(urllib.parse.urljoin(base, u))
+              elif u.startswith('http'):
+                  urls.append(u)
+          seen = set()
+          ranked = []
+          for u in urls:
+              u = u.rstrip('\\')
+              if u in seen: continue
+              seen.add(u)
+              score = 0
+              lu = u.lower()
+              if '2brotv_player.zip' in lu: score += 100
+              if '.zip' in lu: score += 50
+              if 'download' in lu: score += 30
+              if 'file' in lu: score += 10
+              if 'firestorage' in lu: score += 5
+              ranked.append((score,u))
+          ranked.sort(reverse=True)
+          print('Candidate URLs:', len(ranked))
+          for score,u in ranked[:30]: print(score,u)
+          for score,u in ranked:
+              if score < 10: continue
+              try:
+                  subprocess.run(['curl','-fL','-A','Mozilla/5.0','--max-time','30',u,'-o','candidate.bin'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                  p = subprocess.run(['unzip','-t','candidate.bin'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                  if p.returncode == 0:
+                      Path('source.zip').write_bytes(Path('candidate.bin').read_bytes())
+                      print('Selected:', u)
+                      sys.exit(0)
+              except Exception:
+                  pass
+          print('Could not find downloadable ZIP in page. Matching source lines:')
+          for line in text.splitlines():
+              if any(x in line.lower() for x in ['2brotv','download','01a09c17e6547381878ff923e0e092eb','ajgznwmnoee16teh']):
+                  print(line[:2000])
+          sys.exit(2)
+          PY
+          unzip -q source.zip -d source
+          find source -maxdepth 3 -type f | sort | head -80
+
+      - name: Build APK from uploaded project
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROJECT_DIR="$(dirname "$(find /tmp/brotv-source/source -name settings.gradle.kts -print -quit)")"
+          test -n "$PROJECT_DIR"
+          echo "Project: $PROJECT_DIR"
+          cd "$PROJECT_DIR"
+          gradle --no-daemon --stacktrace :app:assembleDebug
+          APK="$(find app/build/outputs/apk/debug -name '*.apk' -print -quit)"
+          test -f "$APK"
+          cp "$APK" "$GITHUB_WORKSPACE/BROTV-Uploaded.apk"
+          sha256sum "$GITHUB_WORKSPACE/BROTV-Uploaded.apk" | tee "$GITHUB_WORKSPACE/BROTV-Uploaded.apk.sha256"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: BROTV-Uploaded-APK
+          path: |
+            BROTV-Uploaded.apk
+            BROTV-Uploaded.apk.sha256
+          if-no-files-found: error
+          retention-days: 3
