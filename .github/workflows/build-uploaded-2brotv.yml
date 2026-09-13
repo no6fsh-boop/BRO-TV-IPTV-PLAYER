@@ -1,124 +1,45 @@
-name: Build Exact Uploaded 2BROTV APK
+name: Publish Exact 2BROTV APK
 
 on:
   push:
     branches:
       - build/uploaded-2brotv-20260913
-  workflow_dispatch:
+    paths:
+      - '.github/workflows/build-uploaded-2brotv.yml'
+
+permissions:
+  contents: write
+  actions: read
 
 jobs:
-  build:
+  publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      API_BASE: https://api.firestorage.ai/dev/file
-      SHARE_ID: GFj2k3kXNlKS
-      EXPECTED_NAME: 2BROTV_Player.zip
-      EXPECTED_SIZE: '3524418'
+    timeout-minutes: 10
     steps:
-      - name: Set up JDK 17
-        uses: actions/setup-java@v5
+      - name: Checkout destination branch
+        uses: actions/checkout@v4
         with:
-          distribution: temurin
-          java-version: '17'
+          ref: build/uploaded-2brotv-20260913
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK 34
-        shell: bash
+      - name: Download APK from successful exact-source build
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+          rm -rf /tmp/exact-apk
+          mkdir -p /tmp/exact-apk
+          gh run download 34777865519 --repo "$GITHUB_REPOSITORY" --name 2BROTV-Player-Exact-APK --dir /tmp/exact-apk
+          test -f /tmp/exact-apk/2BROTV_Player.apk
+          echo 'afc8bba65c138b1a1f4a73c7249f1a26da70e8faf994b4274db03a92fd16604a  /tmp/exact-apk/2BROTV_Player.apk' | sha256sum -c -
 
-      - name: Set up Gradle 8.6
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.6'
-
-      - name: Download exact uploaded source
-        shell: bash
+      - name: Publish direct APK on branch
         run: |
           set -euo pipefail
-          rm -rf /tmp/brotv-uploaded
-          mkdir -p /tmp/brotv-uploaded
-          cd /tmp/brotv-uploaded
-
-          curl -fsSL "$API_BASE/shares/$SHARE_ID/files?maxResults=1000" -o files.json
-          python3 - <<'PY'
-          import json, os, pathlib, subprocess, sys
-          data=json.loads(pathlib.Path('files.json').read_text())
-          files=data.get('files') or []
-          expected=os.environ['EXPECTED_NAME']
-          matches=[f for f in files if f.get('fileName')==expected]
-          if len(matches)!=1:
-              print('Expected exactly one source file, got', len(matches))
-              print(json.dumps(files, ensure_ascii=False, indent=2)[:12000])
-              sys.exit(2)
-          f=matches[0]
-          print('Source metadata:', {k:f.get(k) for k in ['fileId','fileName','sizeBytes','contentType','uploadedAt']})
-          expected_size=int(os.environ['EXPECTED_SIZE'])
-          if int(f.get('sizeBytes') or -1)!=expected_size:
-              raise SystemExit(f"size mismatch: API={f.get('sizeBytes')} expected={expected_size}")
-          pathlib.Path('file_id.txt').write_text(str(f['fileId']))
-          PY
-
-          FILE_ID="$(cat file_id.txt)"
-          curl -fsSL -X POST "$API_BASE/shares/$SHARE_ID/files/$FILE_ID/download" -o download.json
-          python3 - <<'PY'
-          import json, pathlib, subprocess, os, sys
-          d=json.loads(pathlib.Path('download.json').read_text())
-          url=d.get('downloadUrl')
-          if not url:
-              print(d); sys.exit(3)
-          subprocess.run(['curl','-fL','--retry','3',url,'-o','source.zip'],check=True)
-          PY
-
-          ACTUAL_SIZE="$(stat -c%s source.zip)"
-          test "$ACTUAL_SIZE" = "$EXPECTED_SIZE"
-          unzip -t source.zip >/dev/null
-          sha256sum source.zip | tee source.sha256
-          unzip -q source.zip -d source
-
-          PROJECT_DIR="$(dirname "$(find source -name settings.gradle.kts -print -quit)")"
-          test -n "$PROJECT_DIR"
-          echo "PROJECT_DIR=$PWD/$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Exact uploaded project root: $PWD/$PROJECT_DIR"
-          find "$PROJECT_DIR" -maxdepth 3 -type f | sort | head -100
-
-      - name: Verify uploaded project identity
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$PROJECT_DIR"
-          echo '--- root build.gradle.kts ---'
-          sed -n '1,160p' build.gradle.kts
-          echo '--- app build.gradle.kts ---'
-          sed -n '1,240p' app/build.gradle.kts
-          echo '--- package references ---'
-          grep -R "com.example.iptvplayer" -n app/src/main app/build.gradle.kts | head -20 || true
-
-      - name: Build APK from exact uploaded project
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$PROJECT_DIR"
-          gradle --no-daemon --stacktrace :app:assembleDebug
-
-          APK="$(find app/build/outputs/apk/debug -type f -name '*.apk' -print -quit)"
-          test -f "$APK"
-          mkdir -p "$GITHUB_WORKSPACE/out"
-          cp "$APK" "$GITHUB_WORKSPACE/out/2BROTV_Player.apk"
-          sha256sum "$GITHUB_WORKSPACE/out/2BROTV_Player.apk" | tee "$GITHUB_WORKSPACE/out/2BROTV_Player.apk.sha256"
-          ls -lh "$GITHUB_WORKSPACE/out/2BROTV_Player.apk"
-
-      - name: Upload built APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: 2BROTV-Player-Exact-APK
-          path: |
-            out/2BROTV_Player.apk
-            out/2BROTV_Player.apk.sha256
-          if-no-files-found: error
-          retention-days: 3
+          mkdir -p built-apk-exact
+          cp /tmp/exact-apk/2BROTV_Player.apk built-apk-exact/2BROTV_Player.apk
+          cp /tmp/exact-apk/2BROTV_Player.apk.sha256 built-apk-exact/2BROTV_Player.apk.sha256
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add built-apk-exact/2BROTV_Player.apk built-apk-exact/2BROTV_Player.apk.sha256
+          git commit -m 'artifact: publish exact uploaded 2BROTV APK' || exit 0
+          git push origin HEAD:build/uploaded-2brotv-20260913
