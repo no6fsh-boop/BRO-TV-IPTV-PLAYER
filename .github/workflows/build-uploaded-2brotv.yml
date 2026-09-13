@@ -58,6 +58,12 @@ jobs:
               id("org.jetbrains.kotlin.android") version "1.9.24" apply false
           }
           EOF
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          kotlin.code.style=official
+          android.nonTransitiveRClass=true
+          EOF
           cat > app/build.gradle.kts <<'EOF'
           plugins {
               id("com.android.application")
@@ -117,6 +123,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          rm -rf /tmp/brotv-toolchain
           mkdir -p /tmp/brotv-toolchain/sdk /tmp/brotv-toolchain/project-wrapper /tmp/brotv-toolchain/gradle-home
           cp -a "$ANDROID_HOME/platforms" /tmp/brotv-toolchain/sdk/
           cp -a "$ANDROID_HOME/build-tools" /tmp/brotv-toolchain/sdk/
