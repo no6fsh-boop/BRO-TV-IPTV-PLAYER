@@ -1,9 +1,9 @@
-name: Build Developed BROTV APK
+name: Build Developed BROTV v2 APK
 
 on:
   push:
     branches:
-      - build/developed-brotv-20260913
+      - build/developed-brotv-v2-20260914
     paths:
       - '.github/workflows/build-uploaded-2brotv.yml'
   workflow_dispatch:
@@ -18,15 +18,15 @@ jobs:
     timeout-minutes: 30
     env:
       API_BASE: https://api.firestorage.ai/dev/file
-      SHARE_ID: XewtVrV4C3MA
-      FILE_ID: 01a09ca43377765fb43afe612964dd02
-      EXPECTED_SIZE: '3541677'
-      EXPECTED_SHA256: 284cd5c7e87a41befac2722ed6517668732ae8ea372264658820c1762d450c0b
+      SHARE_ID: NeJMz0_DWDh8
+      FILE_ID: 01a09cb4541d773bb508afcd772ed14a
+      EXPECTED_SIZE: '3545008'
+      EXPECTED_SHA256: acce211bf3a4b2eca39ff3a42e14ae94b90fc859bfd900ae5a4d45027a4a72b1
     steps:
       - name: Checkout build branch
         uses: actions/checkout@v4
         with:
-          ref: build/developed-brotv-20260913
+          ref: build/developed-brotv-v2-20260914
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -49,13 +49,13 @@ jobs:
         with:
           gradle-version: '8.6'
 
-      - name: Download exact developed source uploaded by user
+      - name: Download exact developed v2 source uploaded by user
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf /tmp/brotv-developed
-          mkdir -p /tmp/brotv-developed
-          cd /tmp/brotv-developed
+          rm -rf /tmp/brotv-developed-v2
+          mkdir -p /tmp/brotv-developed-v2
+          cd /tmp/brotv-developed-v2
           curl -fsSL -X POST "$API_BASE/shares/$SHARE_ID/files/$FILE_ID/download" -o download.json
           python3 - <<'PY'
           import json, pathlib, subprocess, sys
@@ -73,18 +73,18 @@ jobs:
           PROJECT_DIR="$(dirname "$(find source -name settings.gradle.kts -print -quit)")"
           test -n "$PROJECT_DIR"
           echo "PROJECT_DIR=$PWD/$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Project: $PWD/$PROJECT_DIR"
 
-      - name: Verify developed project identity
+      - name: Verify developed v2 project identity
         shell: bash
         run: |
           set -euo pipefail
           cd "$PROJECT_DIR"
           grep -q 'com.example.iptvplayer' app/build.gradle.kts
           test -f app/src/main/java/com/example/iptvplayer/player/PlayerEngine.kt
-          test -f app/src/main/java/com/example/iptvplayer/data/ProviderHealthChecker.kt
-          test -f app/src/main/java/com/example/iptvplayer/data/db/AppDatabase.kt
-          echo 'Developed BROTV source identity verified.'
+          test -f app/src/main/java/com/example/iptvplayer/security/CredentialCipher.kt
+          grep -q 'extractHttpStatusCode' app/src/main/java/com/example/iptvplayer/ui/FullPlayerActivity.kt
+          grep -q 'checkForFreeze' app/src/main/java/com/example/iptvplayer/ui/FullPlayerActivity.kt
+          echo 'Developed BROTV v2 source identity verified.'
 
       - name: Build debug APK
         shell: bash
@@ -95,17 +95,17 @@ jobs:
           APK="$(find app/build/outputs/apk/debug -type f -name '*.apk' -print -quit)"
           test -f "$APK"
           mkdir -p "$GITHUB_WORKSPACE/out"
-          cp "$APK" "$GITHUB_WORKSPACE/out/BROTV_Developed.apk"
-          sha256sum "$GITHUB_WORKSPACE/out/BROTV_Developed.apk" | tee "$GITHUB_WORKSPACE/out/BROTV_Developed.apk.sha256"
-          ls -lh "$GITHUB_WORKSPACE/out/BROTV_Developed.apk"
+          cp "$APK" "$GITHUB_WORKSPACE/out/BROTV_Developed_v2.apk"
+          sha256sum "$GITHUB_WORKSPACE/out/BROTV_Developed_v2.apk" | tee "$GITHUB_WORKSPACE/out/BROTV_Developed_v2.apk.sha256"
+          ls -lh "$GITHUB_WORKSPACE/out/BROTV_Developed_v2.apk"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BROTV-Developed-APK
+          name: BROTV-Developed-v2-APK
           path: |
-            out/BROTV_Developed.apk
-            out/BROTV_Developed.apk.sha256
+            out/BROTV_Developed_v2.apk
+            out/BROTV_Developed_v2.apk.sha256
           if-no-files-found: error
           retention-days: 3
 
@@ -113,11 +113,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p built-apk-developed
-          cp out/BROTV_Developed.apk built-apk-developed/BROTV_Developed.apk
-          cp out/BROTV_Developed.apk.sha256 built-apk-developed/BROTV_Developed.apk.sha256
+          mkdir -p built-apk-developed-v2
+          cp out/BROTV_Developed_v2.apk built-apk-developed-v2/BROTV_Developed_v2.apk
+          cp out/BROTV_Developed_v2.apk.sha256 built-apk-developed-v2/BROTV_Developed_v2.apk.sha256
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add built-apk-developed/BROTV_Developed.apk built-apk-developed/BROTV_Developed.apk.sha256
-          git commit -m 'artifact: publish developed BROTV APK' || exit 0
-          git push origin HEAD:build/developed-brotv-20260913
+          git add built-apk-developed-v2/BROTV_Developed_v2.apk built-apk-developed-v2/BROTV_Developed_v2.apk.sha256
+          git commit -m 'artifact: publish developed BROTV v2 APK' || exit 0
+          git push origin HEAD:build/developed-brotv-v2-20260914
