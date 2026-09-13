@@ -1,4 +1,4 @@
-name: BROTV Exact Source API Probe
+name: Build Exact Uploaded 2BROTV APK
 
 on:
   push:
@@ -7,46 +7,118 @@ on:
   workflow_dispatch:
 
 jobs:
-  probe:
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
+    env:
+      API_BASE: https://api.firestorage.ai/dev/file
+      SHARE_ID: GFj2k3kXNlKS
+      EXPECTED_NAME: 2BROTV_Player.zip
+      EXPECTED_SIZE: '3524418'
     steps:
-      - name: Isolate exact source download API
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 34
         shell: bash
-        env:
-          SHARE_URL: https://firestorage.ai/ja/f/GFj2k3kXNlKS
         run: |
           set -euo pipefail
-          mkdir -p /tmp/probe && cd /tmp/probe
-          curl -fsSL -A 'Mozilla/5.0' "$SHARE_URL" -o page.html
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+
+      - name: Set up Gradle 8.6
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.6'
+
+      - name: Download exact uploaded source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/brotv-uploaded
+          mkdir -p /tmp/brotv-uploaded
+          cd /tmp/brotv-uploaded
+
+          curl -fsSL "$API_BASE/shares/$SHARE_ID/files?maxResults=1000" -o files.json
           python3 - <<'PY'
-          import re, html, urllib.parse, subprocess, pathlib, os
-          t=html.unescape(pathlib.Path('page.html').read_text(errors='ignore')).replace('\\/','/')
-          scripts=[]
-          for m in re.finditer(r'<script[^>]+src=["\']([^"\']+)["\']',t,re.I):
-              u=urllib.parse.urljoin(os.environ['SHARE_URL'],m.group(1))
-              if u not in scripts: scripts.append(u)
-          for i,u in enumerate(scripts):
-              try: subprocess.run(['curl','-fsSL','-A','Mozilla/5.0',u,'-o',f's{i}.js'],check=True)
-              except Exception: pass
-          for i in range(len(scripts)):
-              p=pathlib.Path(f's{i}.js')
-              if not p.exists(): continue
-              js=p.read_text(errors='ignore')
-              strings=[]
-              for m in re.finditer(r'(["\'])(.{1,360}?)\1',js):
-                  s=m.group(2)
-                  ls=s.lower()
-                  if any(k in ls for k in ['download','presign','signed','/api','objects/','files/','share','publicid','fileid','prepare']):
-                      if s not in strings: strings.append(s)
-              if strings:
-                  print(f'\n### STRINGS JS {i} {scripts[i]} bytes={len(js)}')
-                  for s in strings[:220]: print(s)
-              for key in ['downloadUrl','download_url','download-url','prepareDownload','createDownload','signedUrl','presignedUrl','objects/','/api/']:
-                  loc=[m.start() for m in re.finditer(re.escape(key),js,re.I)]
-                  if loc:
-                      print(f'\n### CONTEXT JS {i} key={key} count={len(loc)}')
-                      for pos in loc[:20]:
-                          print(js[max(0,pos-700):min(len(js),pos+1400)].replace('\n',' ')[:2100])
+          import json, os, pathlib, subprocess, sys
+          data=json.loads(pathlib.Path('files.json').read_text())
+          files=data.get('files') or []
+          expected=os.environ['EXPECTED_NAME']
+          matches=[f for f in files if f.get('fileName')==expected]
+          if len(matches)!=1:
+              print('Expected exactly one source file, got', len(matches))
+              print(json.dumps(files, ensure_ascii=False, indent=2)[:12000])
+              sys.exit(2)
+          f=matches[0]
+          print('Source metadata:', {k:f.get(k) for k in ['fileId','fileName','sizeBytes','contentType','uploadedAt']})
+          expected_size=int(os.environ['EXPECTED_SIZE'])
+          if int(f.get('sizeBytes') or -1)!=expected_size:
+              raise SystemExit(f"size mismatch: API={f.get('sizeBytes')} expected={expected_size}")
+          pathlib.Path('file_id.txt').write_text(str(f['fileId']))
           PY
-          exit 1
+
+          FILE_ID="$(cat file_id.txt)"
+          curl -fsSL -X POST "$API_BASE/shares/$SHARE_ID/files/$FILE_ID/download" -o download.json
+          python3 - <<'PY'
+          import json, pathlib, subprocess, os, sys
+          d=json.loads(pathlib.Path('download.json').read_text())
+          url=d.get('downloadUrl')
+          if not url:
+              print(d); sys.exit(3)
+          subprocess.run(['curl','-fL','--retry','3',url,'-o','source.zip'],check=True)
+          PY
+
+          ACTUAL_SIZE="$(stat -c%s source.zip)"
+          test "$ACTUAL_SIZE" = "$EXPECTED_SIZE"
+          unzip -t source.zip >/dev/null
+          sha256sum source.zip | tee source.sha256
+          unzip -q source.zip -d source
+
+          PROJECT_DIR="$(dirname "$(find source -name settings.gradle.kts -print -quit)")"
+          test -n "$PROJECT_DIR"
+          echo "PROJECT_DIR=$PWD/$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Exact uploaded project root: $PWD/$PROJECT_DIR"
+          find "$PROJECT_DIR" -maxdepth 3 -type f | sort | head -100
+
+      - name: Verify uploaded project identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          echo '--- root build.gradle.kts ---'
+          sed -n '1,160p' build.gradle.kts
+          echo '--- app build.gradle.kts ---'
+          sed -n '1,240p' app/build.gradle.kts
+          echo '--- package references ---'
+          grep -R "com.example.iptvplayer" -n app/src/main app/build.gradle.kts | head -20 || true
+
+      - name: Build APK from exact uploaded project
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          gradle --no-daemon --stacktrace :app:assembleDebug
+
+          APK="$(find app/build/outputs/apk/debug -type f -name '*.apk' -print -quit)"
+          test -f "$APK"
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          cp "$APK" "$GITHUB_WORKSPACE/out/2BROTV_Player.apk"
+          sha256sum "$GITHUB_WORKSPACE/out/2BROTV_Player.apk" | tee "$GITHUB_WORKSPACE/out/2BROTV_Player.apk.sha256"
+          ls -lh "$GITHUB_WORKSPACE/out/2BROTV_Player.apk"
+
+      - name: Upload built APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: 2BROTV-Player-Exact-APK
+          path: |
+            out/2BROTV_Player.apk
+            out/2BROTV_Player.apk.sha256
+          if-no-files-found: error
+          retention-days: 3
