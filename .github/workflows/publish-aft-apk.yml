@@ -1,0 +1,50 @@
+name: Publish BROTV APK for AFT
+
+on:
+  push:
+    branches:
+      - review/brotv-fixed-source-20260914
+    paths:
+      - '.github/workflows/publish-aft-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: review/brotv-fixed-source-20260914
+      - name: Download and verify exact final APK
+        shell: bash
+        env:
+          API_BASE: https://api.firestorage.ai/dev/file
+          SHARE_ID: 5PxVyjo19qz8
+          FILE_ID: 01a09d83fbbb73dfad5d254e9de780e0
+          EXPECTED_SHA256: 5855175662cbd10e720c7e343844f0a2724226913f763e40bf18c03384efde4d
+        run: |
+          set -euo pipefail
+          mkdir -p public
+          curl -fsSL -X POST "$API_BASE/shares/$SHARE_ID/files/$FILE_ID/download" -o /tmp/download.json
+          python3 - <<'PY'
+          import json, pathlib, subprocess, sys
+          d=json.loads(pathlib.Path('/tmp/download.json').read_text())
+          url=d.get('downloadUrl')
+          if not url:
+              print(d)
+              sys.exit(3)
+          subprocess.run(['curl','-fL','--retry','3',url,'-o','public/BROTV-Release-v1.0-Signed.apk'],check=True)
+          PY
+          echo "$EXPECTED_SHA256  public/BROTV-Release-v1.0-Signed.apk" | sha256sum -c -
+      - name: Commit APK to repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/BROTV-Release-v1.0-Signed.apk
+          git commit -m "release: publish BROTV v1.0 signed APK for AFT"
+          git push origin HEAD:review/brotv-fixed-source-20260914
