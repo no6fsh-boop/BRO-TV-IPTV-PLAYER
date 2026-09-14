@@ -14,10 +14,10 @@ jobs:
     timeout-minutes: 30
     env:
       API_BASE: https://api.firestorage.ai/dev/file
-      SHARE_ID: WOWPRQGtdYzO
-      FILE_ID: 01a09d344166761290db28f11e58816d
-      EXPECTED_SIZE: '3559518'
-      EXPECTED_SHA256: 73650b9a891ce89a496c4d8cc211b4847815ed7a78e14298e2b045b08cbd948f
+      SHARE_ID: 3MZUnxdFNGyn
+      FILE_ID: 01a09d3808417607aa0047233d449a0e
+      EXPECTED_SIZE: '3559510'
+      EXPECTED_SHA256: c80f8524f5a074e5644405eea56b4aab72e940f45b94647d304b5ebbf0717687
     steps:
       - name: Set up JDK 17
         uses: actions/setup-java@v5
