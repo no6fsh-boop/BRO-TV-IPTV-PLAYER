@@ -213,11 +213,14 @@ else fail "الرئيسية - التحديث" "تعذر الضغط على زر �
 
 live_frames_before=$(frame_count)
 if launch_route live_tv live; then
-  if tap_text "قناة السعودية" live-first prefix; then
+  # The first channel auto-plays. Select a different channel to test preview,
+  # then select that same channel again to enter fullscreen.
+  if tap_text "قناة السعودية 2" live-first prefix; then
     sleep 2; safe_dump live-preview || true
     if wait_frame "$live_frames_before" && focused; then pass "البث المباشر - تشغيل المعاينة" "أثبت المشغل عرض أول إطار فيديو للقناة التجريبية"; else fail "البث المباشر - تشغيل المعاينة" "لم يثبت عرض إطار فيديو بعد اختيار القناة"; fi
-    if tap_text "قناة السعودية" live-second prefix; then
-      sleep 2; safe_dump live-fullscreen || true
+    if tap_text "قناة السعودية 2" live-second prefix; then
+      adb shell input keyevent KEYCODE_DPAD_UP >/dev/null 2>&1
+      safe_dump live-fullscreen || true
       if grep -Eq 'الجودة|المصدر|الآن' /tmp/evidence/deep/live-fullscreen.xml 2>/dev/null; then pass "البث المباشر - فتح ملء الشاشة" "ظهر Overlay البث في ملء الشاشة"; else fail "البث المباشر - فتح ملء الشاشة" "لم يظهر Overlay المتوقع"; fi
       if tap_text "الجودة" live-quality; then
         sleep 1; safe_dump live-quality-open || true

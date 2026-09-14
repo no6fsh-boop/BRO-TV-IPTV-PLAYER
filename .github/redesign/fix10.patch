@@ -1,0 +1,72 @@
+--- a/app/src/main/java/com/brotv/iptv/ui/screens/library/SeriesDetailsScreen.kt
++++ b/app/src/main/java/com/brotv/iptv/ui/screens/library/SeriesDetailsScreen.kt
+@@ -92,14 +92,34 @@
+ 
+ private enum class VideoSizeMode(val label:String){DEFAULT("الحجم الأصلي"),RATIO_16_9("16:9"),RATIO_4_5("4:5"),RATIO_9_16("9:16"),FILL("ملء الشاشة")}
+ 
+-@Composable private fun SeriesFullPlayer(player:ExoPlayer,title:String,hasPrevious:Boolean,hasNext:Boolean,onPrevious:()->Unit,onNext:()->Unit,onClose:()->Unit){
++@Composable internal fun SeriesFullPlayer(player:ExoPlayer,title:String,hasPrevious:Boolean,hasNext:Boolean,onPrevious:()->Unit,onNext:()->Unit,onClose:()->Unit){
+     var overlay by remember{mutableStateOf(true)};var subtitleMenu by remember{mutableStateOf(false)};var sizeMenu by remember{mutableStateOf(false)};var sizeMode by remember{mutableStateOf(VideoSizeMode.DEFAULT)};var playing by remember{mutableStateOf(player.isPlaying)}
+     val playerFocusRequester = remember { FocusRequester() }
++    var playerFocused by remember { mutableStateOf(false) }
++    var interaction by remember { mutableIntStateOf(0) }
+     val subtitleLanguages=remember(player.currentMediaItem,player.currentTracks){player.currentTracks.groups.filter{it.type==C.TRACK_TYPE_TEXT}.flatMap{g->(0 until g.length).mapNotNull{i->g.getTrackFormat(i).language}}.distinct()}
+     DisposableEffect(player){val l=object:Player.Listener{override fun onIsPlayingChanged(v:Boolean){playing=v}};player.addListener(l);onDispose{player.removeListener(l)}}
+-    LaunchedEffect(overlay,subtitleMenu,sizeMenu){if(!subtitleMenu&&!sizeMenu){delay(60);runCatching{playerFocusRequester.requestFocus()}};if(overlay&&!subtitleMenu&&!sizeMenu){delay(5000);overlay=false}}
++    LaunchedEffect(overlay,subtitleMenu,sizeMenu) {
++        if (!subtitleMenu && !sizeMenu) playerFocusRequester.requestFocus()
++    }
++    LaunchedEffect(overlay,subtitleMenu,sizeMenu,interaction) {
++        if (overlay && !subtitleMenu && !sizeMenu) { delay(5000); overlay=false }
++    }
+     BackHandler{when{subtitleMenu->{subtitleMenu=false;overlay=true};sizeMenu->{sizeMenu=false;overlay=true};overlay->overlay=false;else->onClose()}}
+-    Box(Modifier.fillMaxSize().background(Color.Black).focusRequester(playerFocusRequester).focusable().onPreviewKeyEvent{e->if(e.nativeKeyEvent.action!=KeyEvent.ACTION_DOWN)false else when(e.nativeKeyEvent.keyCode){KeyEvent.KEYCODE_DPAD_CENTER,KeyEvent.KEYCODE_ENTER,KeyEvent.KEYCODE_DPAD_UP->{overlay=true;true};else->false}}){
++    Box(Modifier.fillMaxSize().background(Color.Black).focusRequester(playerFocusRequester)
++        .onFocusChanged { playerFocused = it.isFocused }.focusable().onPreviewKeyEvent { e ->
++            if (subtitleMenu || sizeMenu || e.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) false
++            else {
++                interaction++
++                when (e.nativeKeyEvent.keyCode) {
++                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_UP -> {
++                        // A focused child owns OK and directional navigation.
++                        if (playerFocused) { overlay=true; true } else false
++                    }
++                    else -> false
++                }
++            }
++        }) {
+         Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){
+             val surfaceModifier=when(sizeMode){VideoSizeMode.RATIO_16_9->Modifier.fillMaxWidth().aspectRatio(16f/9f);VideoSizeMode.RATIO_4_5->Modifier.fillMaxHeight().aspectRatio(4f/5f);VideoSizeMode.RATIO_9_16->Modifier.fillMaxHeight().aspectRatio(9f/16f);else->Modifier.fillMaxSize()}
+             AndroidView(factory={ctx->PlayerView(ctx).apply{this.player=player;useController=false;isFocusable=false;layoutParams=ViewGroup.LayoutParams(-1,-1)}},update={v->v.player=player;v.resizeMode=when(sizeMode){VideoSizeMode.FILL->AspectRatioFrameLayout.RESIZE_MODE_FILL;else->AspectRatioFrameLayout.RESIZE_MODE_FIT}},modifier=surfaceModifier)
+--- a/app/src/main/java/com/brotv/iptv/ui/screens/live/LiveTvScreen.kt
++++ b/app/src/main/java/com/brotv/iptv/ui/screens/live/LiveTvScreen.kt
+@@ -67,6 +67,7 @@
+     var error by remember { mutableStateOf<String?>(null) }
+     var fullscreen by remember { mutableStateOf(false) }
+     var overlayVisible by remember { mutableStateOf(false) }
++    var overlayInteraction by remember { mutableIntStateOf(0) }
+     var sourceMenuVisible by remember { mutableStateOf(false) }
+     var previewFocused by remember { mutableStateOf(false) }
+     var sourceNotice by remember { mutableStateOf<String?>(null) }
+@@ -255,6 +256,8 @@
+     if (fullscreen) {
+         LaunchedEffect(fullscreen, overlayVisible, sourceMenuVisible, selectedGroup?.key) {
+             if (fullscreen && !sourceMenuVisible) { delay(60); runCatching { fullscreenFocusRequester.requestFocus() } }
++        }
++        LaunchedEffect(overlayVisible, sourceMenuVisible, overlayInteraction) {
+             if (overlayVisible && !sourceMenuVisible) { delay(4_500); overlayVisible = false }
+         }
+         BackHandler {
+@@ -270,10 +273,11 @@
+                 KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                     if (overlayVisible && selectedGroup?.sources?.isNotEmpty() == true) sourceMenuVisible = true
+                     else overlayVisible = true
++                    overlayInteraction++
+                     true
+                 }
+                 KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
+-                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> { overlayVisible=true; true }
++                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> { overlayVisible=true; overlayInteraction++; true }
+                 else -> false
+             }
+         }) {

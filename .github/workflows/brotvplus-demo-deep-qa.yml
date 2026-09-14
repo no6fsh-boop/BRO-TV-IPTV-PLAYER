@@ -11,6 +11,8 @@ on:
       - '.github/scripts/brotv-history-evidence.py'
       - '.github/scripts/tests/**'
       - '.github/tests/**'
+      - '.github/redesign/fix10.patch'
+      - '.github/scripts/apply-brotv-plus-redesign.sh'
 
 jobs:
   deep-qa:

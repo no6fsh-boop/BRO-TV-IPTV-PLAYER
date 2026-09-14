@@ -43,11 +43,13 @@ class HomeRemoteRefreshTest {
         }
         server.start()
         try {
+            // MockWebServer resolves its host name; keep that work off the UI thread.
+            val profile = PlaylistProfile("refresh-qa", "demo", "demo", server.url("/").toString())
             var navigations = 0
             compose.setContent {
                 BroTvTheme {
                     HomeScreen(
-                        PlaylistProfile("refresh-qa", "demo", "demo", server.url("/").toString()),
+                        profile,
                         IptvRepository(context), preferences,
                         { navigations++ }, {}, {}, {}, {},
                     )

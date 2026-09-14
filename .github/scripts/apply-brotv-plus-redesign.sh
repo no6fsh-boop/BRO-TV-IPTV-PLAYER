@@ -33,4 +33,6 @@ chmod +x .github/scripts/apply-brotv-fix7.sh .github/scripts/apply-brotv-fix8.sh
 .github/scripts/apply-brotv-fix8.sh
 .github/scripts/apply-brotv-fix9.sh
 
-echo 'BRO PLUS TV redesign patch + fix1 + fix2 + fix3 + fix4 + fix5 + fix6 + fix7 + fix8 + fix9 applied.'
+patch -d "$PROJECT_DIR" -p1 < "$GITHUB_WORKSPACE/.github/redesign/fix10.patch"
+
+echo 'BRO PLUS TV redesign patch + fix1 + fix2 + fix3 + fix4 + fix5 + fix6 + fix7 + fix8 + fix9 + fix10 applied.'
