@@ -74,9 +74,11 @@ jobs:
           "$BUILD_TOOLS/zipalign" -c 4 "$OUT/BRO-TV-2.0.0-aligned-unsigned.apk"
           cp "$AAB" "$OUT/BRO-TV-2.0.0-unsigned.aab"
           cp "$BUILD_TOOLS/lib/apksigner.jar" "$OUT/apksigner.jar"
+          cp "$RUNNER_TEMP/source.zip" "$OUT/BRO-TV-2.0.0-source.zip"
           sha256sum "$OUT"/* | tee "$OUT/unsigned-sha256.txt"
           unzip -t "$OUT/BRO-TV-2.0.0-aligned-unsigned.apk" >/dev/null
           unzip -t "$OUT/BRO-TV-2.0.0-unsigned.aab" >/dev/null
+          unzip -t "$OUT/BRO-TV-2.0.0-source.zip" >/dev/null
 
       - uses: actions/upload-artifact@v4
         with:
