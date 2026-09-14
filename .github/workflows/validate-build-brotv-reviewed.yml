@@ -1,4 +1,4 @@
-name: Collect BROTV Lint Report
+name: Validate BROTV Lint Fixes
 
 on:
   push:
@@ -9,15 +9,15 @@ on:
   workflow_dispatch:
 
 jobs:
-  lint-report:
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     env:
       API_BASE: https://api.firestorage.ai/dev/file
-      SHARE_ID: 7mSnMcBAzZZI
-      FILE_ID: 01a09d4d608170298a51df1b8e3194e7
-      EXPECTED_SIZE: '3619025'
-      EXPECTED_SHA256: 1f08fa4150da8df58ad1e22c56a1870f082fb21ece6ba896db87fcb537f70cc6
+      SHARE_ID: lH1GaJ2UEgv2
+      FILE_ID: 01a09d59f3a07047a31f2ec75adcc643
+      EXPECTED_SIZE: '3620293'
+      EXPECTED_SHA256: 0cbba2fc547bae36fa5d4623ecfe45990a8471b8f412de152a48affbec8c3615
     steps:
       - uses: actions/setup-java@v5
         with:
@@ -29,11 +29,11 @@ jobs:
         run: |
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
-      - name: Download exact reviewed source
+      - name: Download exact fixed source
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf /tmp/brotv-lint && mkdir -p /tmp/brotv-lint && cd /tmp/brotv-lint
+          rm -rf /tmp/brotv-validate && mkdir -p /tmp/brotv-validate && cd /tmp/brotv-validate
           curl -fsSL -X POST "$API_BASE/shares/$SHARE_ID/files/$FILE_ID/download" -o download.json
           python3 - <<'PY'
           import json, pathlib, subprocess, sys
@@ -46,25 +46,39 @@ jobs:
           unzip -q source.zip -d source
           PROJECT_DIR="$(dirname "$(find source -name settings.gradle.kts -print -quit)")"
           echo "PROJECT_DIR=$PWD/$PROJECT_DIR" >> "$GITHUB_ENV"
-      - name: Run lint and preserve full report
+      - name: Verify wrapper and project
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          test -f gradle/wrapper/gradle-wrapper.jar
+          grep -q 'applicationId = "com.example.iptvplayer"' app/build.gradle.kts
+          chmod +x gradlew
+          ./gradlew --version
+      - name: Compile Kotlin
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon --stacktrace :app:compileDebugKotlin
+      - name: Run Android Lint
         shell: bash
         run: |
           set +e
           cd "$PROJECT_DIR"
-          chmod +x gradlew
           ./gradlew --no-daemon :app:lintDebug
-          echo "LINT_EXIT=$?" >> "$GITHUB_ENV"
+          status=$?
+          echo "LINT_EXIT=$status" >> "$GITHUB_ENV"
           mkdir -p /tmp/lint-output
           find app/build -type f \( -name 'lint-results-debug.txt' -o -name 'lint-results-debug.html' -o -name 'lint-results-debug.xml' \) -exec cp {} /tmp/lint-output/ \;
-          ls -l /tmp/lint-output
           exit 0
-      - name: Upload full lint report
+      - name: Upload lint report
         uses: actions/upload-artifact@v4
         with:
-          name: BROTV-Full-Lint-Report
+          name: BROTV-LintFix-v1-Report
           path: /tmp/lint-output/
           retention-days: 2
-      - name: Mark lint result
+      - name: Enforce lint clean
         shell: bash
         run: |
-          echo "Original lint exit code: $LINT_EXIT"
+          test "$LINT_EXIT" = "0"
