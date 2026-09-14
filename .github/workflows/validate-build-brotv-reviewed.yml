@@ -1,4 +1,4 @@
-name: Build Validated BROTV Debug APK
+name: Validate BROTV Release Variant
 
 on:
   push:
@@ -9,15 +9,15 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-debug:
+  validate-release:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     env:
       API_BASE: https://api.firestorage.ai/dev/file
-      SHARE_ID: R4zbtpx6zcuQ
-      FILE_ID: 01a09d5e294375a0bcd012efbd0112e7
-      EXPECTED_SIZE: '3622809'
-      EXPECTED_SHA256: 74b26cb9a6c28841114c85a3a8fb0b9422aaa41b75e0f143a5f78c7f89d8f0ee
+      SHARE_ID: cw4EtSveO3bX
+      FILE_ID: 01a09d72bb0c767fb66129623b7297d6
+      EXPECTED_SIZE: '3608309'
+      EXPECTED_SHA256: 1fcb50d1fed4c1109fe7879f4efecde0b555efadd94eb207a15ea7d0d27c4663
     steps:
       - uses: actions/setup-java@v5
         with:
@@ -30,11 +30,11 @@ jobs:
           set -euo pipefail
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
-      - name: Download exact validated source
+      - name: Download exact clean source
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf /tmp/brotv-debug && mkdir -p /tmp/brotv-debug && cd /tmp/brotv-debug
+          rm -rf /tmp/brotv-release && mkdir -p /tmp/brotv-release && cd /tmp/brotv-release
           curl -fsSL -X POST "$API_BASE/shares/$SHARE_ID/files/$FILE_ID/download" -o download.json
           python3 - <<'PY'
           import json, pathlib, subprocess, sys
@@ -56,32 +56,48 @@ jobs:
           cd "$PROJECT_DIR"
           test -f gradle/wrapper/gradle-wrapper.jar
           grep -q 'applicationId = "com.example.iptvplayer"' app/build.gradle.kts
+          grep -q 'versionCode = 1' app/build.gradle.kts
+          grep -q 'versionName = "1.0"' app/build.gradle.kts
           chmod +x gradlew
           ./gradlew --version
-      - name: Assemble Debug APK
+      - name: Release unit tests
         shell: bash
         run: |
           set -euo pipefail
           cd "$PROJECT_DIR"
-          ./gradlew --no-daemon --stacktrace :app:assembleDebug
-      - name: Verify Debug APK
+          ./gradlew --no-daemon --stacktrace :app:testReleaseUnitTest
+      - name: Release lint
         shell: bash
         run: |
           set -euo pipefail
           cd "$PROJECT_DIR"
-          APK="app/build/outputs/apk/debug/app-debug.apk"
+          ./gradlew --no-daemon --stacktrace :app:lintRelease
+      - name: Assemble unsigned Release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon --stacktrace :app:assembleRelease
+      - name: Verify Release APK structure
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          APK="app/build/outputs/apk/release/app-release-unsigned.apk"
           test -s "$APK"
-          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$APK" | tee /tmp/apksigner.txt
-          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$APK" | tee /tmp/badging.txt
-          grep -q "package: name='com.example.iptvplayer'" /tmp/badging.txt
-          mkdir -p /tmp/brotv-output
-          cp "$APK" /tmp/brotv-output/BROTV-Validated-Debug.apk
-          sha256sum "$APK" | tee /tmp/brotv-output/BROTV-Validated-Debug.sha256
-          cp /tmp/apksigner.txt /tmp/brotv-output/apksigner.txt
-          cp /tmp/badging.txt /tmp/brotv-output/badging.txt
-      - name: Upload validated Debug APK
+          "$ANDROID_HOME/build-tools/34.0.0/zipalign" -c -v 4 "$APK" | tee /tmp/zipalign.txt
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$APK" | tee /tmp/release-badging.txt
+          grep -q "package: name='com.example.iptvplayer'" /tmp/release-badging.txt
+          grep -q "versionCode='1'" /tmp/release-badging.txt
+          grep -q "versionName='1.0'" /tmp/release-badging.txt
+          mkdir -p /tmp/brotv-release-output
+          cp "$APK" /tmp/brotv-release-output/BROTV-Release-Unsigned.apk
+          sha256sum "$APK" | tee /tmp/brotv-release-output/BROTV-Release-Unsigned.sha256
+          cp /tmp/zipalign.txt /tmp/brotv-release-output/zipalign.txt
+          cp /tmp/release-badging.txt /tmp/brotv-release-output/badging.txt
+      - name: Upload Release validation artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BROTV-Validated-Debug
-          path: /tmp/brotv-output/
+          name: BROTV-Release-Validation
+          path: /tmp/brotv-release-output/
           retention-days: 3
