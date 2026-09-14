@@ -1,4 +1,4 @@
-name: Compile BROTV Fixed Source Review
+name: Package BROTV Fixed Source Review
 
 on:
   push:
@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  compile:
+  package-source:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     env:
       API_BASE: https://api.firestorage.ai/dev/file
       SHARE_ID: s5n76kvoxiuJ
@@ -28,25 +28,18 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK 34
-        shell: bash
-        run: |
-          set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
-
       - name: Set up Gradle 8.6
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.6'
 
-      - name: Download exact fixed source
+      - name: Download exact reviewed source
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf /tmp/brotv-fixed-review
-          mkdir -p /tmp/brotv-fixed-review
-          cd /tmp/brotv-fixed-review
+          rm -rf /tmp/brotv-fixed-package
+          mkdir -p /tmp/brotv-fixed-package
+          cd /tmp/brotv-fixed-package
           curl -fsSL -X POST "$API_BASE/shares/$SHARE_ID/files/$FILE_ID/download" -o download.json
           python3 - <<'PY'
           import json, pathlib, subprocess, sys
@@ -64,20 +57,30 @@ jobs:
           test -n "$PROJECT_DIR"
           echo "PROJECT_DIR=$PWD/$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Verify project identity
+      - name: Generate official Gradle wrapper
         shell: bash
         run: |
           set -euo pipefail
           cd "$PROJECT_DIR"
-          grep -q 'com.example.iptvplayer' app/build.gradle.kts
-          grep -q 'audioOutputMode' app/src/main/java/com/example/iptvplayer/data/PrefsManager.kt
-          grep -q 'setMediaCodecSelector' app/src/main/java/com/example/iptvplayer/player/PlayerEngine.kt
-          grep -q 'PortableBackupCipher' app/src/main/java/com/example/iptvplayer/data/BackupManager.kt
-          ! grep -R 'setAudioSink' -n app/src/main/java
+          gradle --no-daemon wrapper --gradle-version 8.6 --distribution-type bin
+          test -s gradle/wrapper/gradle-wrapper.jar
+          chmod +x gradlew
+          ./gradlew --version >/dev/null
 
-      - name: Compile Kotlin only
+      - name: Package reviewed source only
         shell: bash
         run: |
           set -euo pipefail
-          cd "$PROJECT_DIR"
-          gradle --no-daemon --stacktrace :app:compileDebugKotlin
+          cd "$(dirname "$PROJECT_DIR")"
+          zip -qr "$GITHUB_WORKSPACE/BROTV_Fixed_Source_Reviewed.zip" "$(basename "$PROJECT_DIR")"
+          sha256sum "$GITHUB_WORKSPACE/BROTV_Fixed_Source_Reviewed.zip" | tee "$GITHUB_WORKSPACE/BROTV_Fixed_Source_Reviewed.zip.sha256"
+
+      - name: Upload reviewed source artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BROTV-Fixed-Source-Reviewed
+          path: |
+            BROTV_Fixed_Source_Reviewed.zip
+            BROTV_Fixed_Source_Reviewed.zip.sha256
+          if-no-files-found: error
+          retention-days: 3
