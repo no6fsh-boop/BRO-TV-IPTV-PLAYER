@@ -2,7 +2,7 @@ name: BRO TV 2.0.0 Final Build
 
 on:
   push:
-    branches: [ brotv-2.0.0-final-build ]
+    branches: [ brotv-2.0.0-final-build, brotv-2.0.0-source-export ]
   workflow_dispatch:
 
 permissions:
