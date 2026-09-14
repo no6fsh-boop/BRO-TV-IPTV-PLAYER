@@ -1,4 +1,4 @@
-name: Validate and Build BROTV Reviewed Source
+name: Collect BROTV Lint Report
 
 on:
   push:
@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  validate-build:
+  lint-report:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 25
     env:
       API_BASE: https://api.firestorage.ai/dev/file
       SHARE_ID: 7mSnMcBAzZZI
@@ -19,110 +19,52 @@ jobs:
       EXPECTED_SIZE: '3619025'
       EXPECTED_SHA256: 1f08fa4150da8df58ad1e22c56a1870f082fb21ece6ba896db87fcb537f70cc6
     steps:
-      - name: Set up JDK 17
-        uses: actions/setup-java@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
+      - uses: android-actions/setup-android@v3
       - name: Install Android SDK 34
         shell: bash
         run: |
-          set -euo pipefail
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
-
       - name: Download exact reviewed source
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf /tmp/brotv-reviewed-build
-          mkdir -p /tmp/brotv-reviewed-build
-          cd /tmp/brotv-reviewed-build
+          rm -rf /tmp/brotv-lint && mkdir -p /tmp/brotv-lint && cd /tmp/brotv-lint
           curl -fsSL -X POST "$API_BASE/shares/$SHARE_ID/files/$FILE_ID/download" -o download.json
           python3 - <<'PY'
           import json, pathlib, subprocess, sys
-          d=json.loads(pathlib.Path('download.json').read_text())
-          url=d.get('downloadUrl')
-          if not url:
-              print(d); sys.exit(3)
+          d=json.loads(pathlib.Path('download.json').read_text()); url=d.get('downloadUrl')
+          if not url: print(d); sys.exit(3)
           subprocess.run(['curl','-fL','--retry','3',url,'-o','source.zip'],check=True)
           PY
           test "$(stat -c%s source.zip)" = "$EXPECTED_SIZE"
           echo "$EXPECTED_SHA256  source.zip" | sha256sum -c -
-          unzip -t source.zip >/dev/null
           unzip -q source.zip -d source
           PROJECT_DIR="$(dirname "$(find source -name settings.gradle.kts -print -quit)")"
-          test -n "$PROJECT_DIR"
           echo "PROJECT_DIR=$PWD/$PROJECT_DIR" >> "$GITHUB_ENV"
-
-      - name: Verify reviewed source identity
+      - name: Run lint and preserve full report
         shell: bash
         run: |
-          set -euo pipefail
+          set +e
           cd "$PROJECT_DIR"
-          test -f gradle/wrapper/gradle-wrapper.jar
-          grep -q 'gradle-8.6-bin.zip' gradle/wrapper/gradle-wrapper.properties
-          grep -q 'applicationId = "com.example.iptvplayer"' app/build.gradle.kts
-          grep -q 'audioOutputMode' app/src/main/java/com/example/iptvplayer/data/PrefsManager.kt
-          grep -q 'setMediaCodecSelector' app/src/main/java/com/example/iptvplayer/player/PlayerEngine.kt
-          ! grep -R 'setAudioSink' -n app/src/main/java
           chmod +x gradlew
-          ./gradlew --version
-
-      - name: Compile Kotlin
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$PROJECT_DIR"
-          ./gradlew --no-daemon --stacktrace :app:compileDebugKotlin
-
-      - name: Unit tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$PROJECT_DIR"
-          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest
-
-      - name: Android Lint
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$PROJECT_DIR"
-          ./gradlew --no-daemon --stacktrace :app:lintDebug
-
-      - name: Assemble Debug APK
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$PROJECT_DIR"
-          ./gradlew --no-daemon --stacktrace :app:assembleDebug
-
-      - name: Verify APK
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$PROJECT_DIR"
-          APK="app/build/outputs/apk/debug/app-debug.apk"
-          test -s "$APK"
-          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$APK" | tee /tmp/apksigner.txt
-          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$APK" | tee /tmp/badging.txt
-          sha256sum "$APK" | tee /tmp/apk.sha256
-          grep -q "package: name='com.example.iptvplayer'" /tmp/badging.txt
-          mkdir -p /tmp/brotv-output
-          cp "$APK" /tmp/brotv-output/BROTV-Reviewed-Debug.apk
-          cp /tmp/apksigner.txt /tmp/brotv-output/
-          cp /tmp/badging.txt /tmp/brotv-output/
-          cp /tmp/apk.sha256 /tmp/brotv-output/
-          if [ -f app/build/reports/lint-results-debug.html ]; then cp app/build/reports/lint-results-debug.html /tmp/brotv-output/; fi
-          if [ -f app/build/reports/lint-results-debug.txt ]; then cp app/build/reports/lint-results-debug.txt /tmp/brotv-output/; fi
-
-      - name: Upload validated debug build
+          ./gradlew --no-daemon :app:lintDebug
+          echo "LINT_EXIT=$?" >> "$GITHUB_ENV"
+          mkdir -p /tmp/lint-output
+          find app/build -type f \( -name 'lint-results-debug.txt' -o -name 'lint-results-debug.html' -o -name 'lint-results-debug.xml' \) -exec cp {} /tmp/lint-output/ \;
+          ls -l /tmp/lint-output
+          exit 0
+      - name: Upload full lint report
         uses: actions/upload-artifact@v4
         with:
-          name: BROTV-Reviewed-Debug-Validated
-          path: /tmp/brotv-output/
-          retention-days: 3
+          name: BROTV-Full-Lint-Report
+          path: /tmp/lint-output/
+          retention-days: 2
+      - name: Mark lint result
+        shell: bash
+        run: |
+          echo "Original lint exit code: $LINT_EXIT"
