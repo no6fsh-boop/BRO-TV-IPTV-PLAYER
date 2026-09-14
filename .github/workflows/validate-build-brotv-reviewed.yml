@@ -14,7 +14,7 @@ jobs:
     timeout-minutes: 35
     env:
       API_BASE: https://api.firestorage.ai/dev/file
-      SHARE_ID: bfnUzvb18VNY7FS9
+      SHARE_ID: 7mSnMcBAzZZI
       FILE_ID: 01a09d4d608170298a51df1b8e3194e7
       EXPECTED_SIZE: '3619025'
       EXPECTED_SHA256: 1f08fa4150da8df58ad1e22c56a1870f082fb21ece6ba896db87fcb537f70cc6
