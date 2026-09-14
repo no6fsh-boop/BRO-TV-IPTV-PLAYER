@@ -1,0 +1,73 @@
+name: Validate BROTV Feature 02 Smart Quality Guard
+
+on:
+  push:
+    branches:
+      - review/brotv-fixed-source-20260914
+    paths:
+      - '.github/workflows/validate-feature02-smart-quality.yml'
+  workflow_dispatch:
+
+jobs:
+  validate-feature02:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      API_BASE: https://api.firestorage.ai/dev/file
+      SHARE_ID: 5hgi0ON1VnEb
+      FILE_ID: 01a09dac8d3a75f58f9e265ef8e1794b
+      EXPECTED_SIZE: '3622124'
+      EXPECTED_SHA256: 9182ca5f6680db21189476da1c0767f4410828af51afc2bb97579e4fb56779f8
+    steps:
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK 34
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+      - name: Download exact feature source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/brotv-feature02 && mkdir -p /tmp/brotv-feature02 && cd /tmp/brotv-feature02
+          curl -fsSL -X POST "$API_BASE/shares/$SHARE_ID/files/$FILE_ID/download" -o download.json
+          python3 - <<'PY'
+          import json, pathlib, subprocess, sys
+          d=json.loads(pathlib.Path('download.json').read_text())
+          url=d.get('downloadUrl')
+          if not url:
+              print(d)
+              sys.exit(3)
+          subprocess.run(['curl','-fL','--retry','3',url,'-o','source.zip'],check=True)
+          PY
+          test "$(stat -c%s source.zip)" = "$EXPECTED_SIZE"
+          echo "$EXPECTED_SHA256  source.zip" | sha256sum -c -
+          unzip -q source.zip -d source
+          PROJECT_DIR="$(dirname "$(find source -name settings.gradle.kts -print -quit)")"
+          test -n "$PROJECT_DIR"
+          echo "PROJECT_DIR=$PWD/$PROJECT_DIR" >> "$GITHUB_ENV"
+      - name: Compile Kotlin
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          grep -q 'applicationId = "com.example.iptvplayer"' app/build.gradle.kts
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace :app:compileDebugKotlin
+      - name: Unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest
+      - name: Android Lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon --stacktrace :app:lintDebug
