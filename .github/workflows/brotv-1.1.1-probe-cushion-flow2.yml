@@ -1,0 +1,16 @@
+name: BRO TV 1.1.1 Probe Cushion Flow 2
+
+on:
+  push:
+    branches: [ brotv-1.1.1-build ]
+    paths:
+      - '.github/workflows/brotv-1.1.1-probe-cushion-flow2.yml'
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect cushion flow precisely
+        run: |
+          curl -L --fail --silent --show-error 'https://firestorage.ai/_next/static/chunks/4899-d89df949f2dbd5af.js' -o client.js
+          python3 -c "s=open('client.js',encoding='utf-8').read(); i=s.find('cushion-sessions'); print(s[i-1200:i+3200])"
