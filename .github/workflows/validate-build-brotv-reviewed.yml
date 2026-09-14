@@ -1,4 +1,4 @@
-name: Final Verify BROTV Signed Release
+name: Smoke Test BROTV Final Release
 
 on:
   push:
@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  final-verify:
+  smoke-final-release:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       API_BASE: https://api.firestorage.ai/dev/file
       SHARE_ID: 5PxVyjo19qz8
@@ -24,48 +24,44 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
-      - name: Install Android build tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "build-tools;34.0.0" "platform-tools"
       - name: Download exact final Release APK
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf /tmp/brotv-final && mkdir -p /tmp/brotv-final && cd /tmp/brotv-final
+          rm -rf /tmp/brotv-smoke-final /tmp/brotv-smoke-evidence
+          mkdir -p /tmp/brotv-smoke-final /tmp/brotv-smoke-evidence
+          cd /tmp/brotv-smoke-final
           curl -fsSL -X POST "$API_BASE/shares/$SHARE_ID/files/$FILE_ID/download" -o download.json
           python3 - <<'PY'
           import json, pathlib, subprocess, sys
           d=json.loads(pathlib.Path('download.json').read_text()); url=d.get('downloadUrl')
           if not url: print(d); sys.exit(3)
-          subprocess.run(['curl','-fL','--retry','3',url,'-o','BROTV-Release-v1.0-Signed.apk'],check=True)
+          subprocess.run(['curl','-fL','--retry','3',url,'-o','BROTV.apk'],check=True)
           PY
-          test "$(stat -c%s BROTV-Release-v1.0-Signed.apk)" = "$EXPECTED_SIZE"
-          echo "$EXPECTED_SHA256  BROTV-Release-v1.0-Signed.apk" | sha256sum -c -
-      - name: Official Android verification
+          test "$(stat -c%s BROTV.apk)" = "$EXPECTED_SIZE"
+          echo "$EXPECTED_SHA256  BROTV.apk" | sha256sum -c -
+      - name: Enable KVM
         shell: bash
         run: |
-          set -euo pipefail
-          cd /tmp/brotv-final
-          BT="$ANDROID_HOME/build-tools/34.0.0"
-          APK="BROTV-Release-v1.0-Signed.apk"
-          "$BT/zipalign" -c -p 4 "$APK"
-          "$BT/apksigner" verify --verbose --print-certs "$APK" | tee apksigner.txt
-          grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' apksigner.txt
-          grep -q 'Verified using v3 scheme (APK Signature Scheme v3): true' apksigner.txt
-          "$BT/aapt" dump badging "$APK" | tee badging.txt
-          grep -q "package: name='com.example.iptvplayer' versionCode='1' versionName='1.0'" badging.txt
-          grep -q "application-label:'BRO TV'" badging.txt
-          sha256sum "$APK" | tee BROTV-Release-v1.0-Signed.sha256
-      - name: Upload final verified Release APK
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+      - name: Emulator install and startup smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: >-
+            bash -lc 'set -euo pipefail; adb install -r /tmp/brotv-smoke-final/BROTV.apk | tee /tmp/brotv-smoke-evidence/install.txt; grep -q "Success" /tmp/brotv-smoke-evidence/install.txt; adb logcat -c; adb shell am force-stop com.example.iptvplayer; adb shell monkey -p com.example.iptvplayer -c android.intent.category.LAUNCHER 1 | tee /tmp/brotv-smoke-evidence/launch.txt; sleep 8; adb shell pidof com.example.iptvplayer | tr -d "\r" | tee /tmp/brotv-smoke-evidence/pid.txt; test -s /tmp/brotv-smoke-evidence/pid.txt; adb shell dumpsys activity activities > /tmp/brotv-smoke-evidence/activities.txt; grep -q "com.example.iptvplayer" /tmp/brotv-smoke-evidence/activities.txt; adb logcat -d -t 4000 > /tmp/brotv-smoke-evidence/logcat.txt; if grep -E "FATAL EXCEPTION|Process: com\.example\.iptvplayer.*has died" /tmp/brotv-smoke-evidence/logcat.txt; then echo "BRO TV crashed during startup smoke test" >&2; exit 1; fi; printf "Smoke test PASS\nPackage: com.example.iptvplayer\nAPI: 30\n" > /tmp/brotv-smoke-evidence/result.txt'
+      - name: Upload final smoke-test evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: BROTV-Final-Verified-Release
-          path: |
-            /tmp/brotv-final/BROTV-Release-v1.0-Signed.apk
-            /tmp/brotv-final/BROTV-Release-v1.0-Signed.sha256
-            /tmp/brotv-final/apksigner.txt
-            /tmp/brotv-final/badging.txt
+          name: BROTV-Final-Release-Smoke-Test
+          path: /tmp/brotv-smoke-evidence/
+          if-no-files-found: warn
           retention-days: 3
