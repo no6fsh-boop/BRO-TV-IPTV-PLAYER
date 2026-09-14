@@ -1,0 +1,16 @@
+name: BRO TV 1.1.1 Probe HTML
+
+on:
+  push:
+    branches: [ brotv-1.1.1-build ]
+    paths:
+      - '.github/workflows/brotv-1.1.1-probe-html.yml'
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print share page
+        run: |
+          curl -L --fail --silent --show-error 'https://firestorage.ai/ja/f/lEBDjxoMWwC_' -o share.html
+          cat share.html
