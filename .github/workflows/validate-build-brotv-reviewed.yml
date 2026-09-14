@@ -1,4 +1,4 @@
-name: Validate BROTV Lint Fixes
+name: Validate BROTV Final Candidate
 
 on:
   push:
@@ -14,10 +14,10 @@ jobs:
     timeout-minutes: 30
     env:
       API_BASE: https://api.firestorage.ai/dev/file
-      SHARE_ID: lH1GaJ2UEgv2
-      FILE_ID: 01a09d59f3a07047a31f2ec75adcc643
-      EXPECTED_SIZE: '3620293'
-      EXPECTED_SHA256: 0cbba2fc547bae36fa5d4623ecfe45990a8471b8f412de152a48affbec8c3615
+      SHARE_ID: R4zbtpx6zcuQ
+      FILE_ID: 01a09d5e294375a0bcd012efbd0112e7
+      EXPECTED_SIZE: '3622809'
+      EXPECTED_SHA256: 74b26cb9a6c28841114c85a3a8fb0b9422aaa41b75e0f143a5f78c7f89d8f0ee
     steps:
       - uses: actions/setup-java@v5
         with:
@@ -29,11 +29,11 @@ jobs:
         run: |
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
-      - name: Download exact fixed source
+      - name: Download exact final candidate
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf /tmp/brotv-validate && mkdir -p /tmp/brotv-validate && cd /tmp/brotv-validate
+          rm -rf /tmp/brotv-final && mkdir -p /tmp/brotv-final && cd /tmp/brotv-final
           curl -fsSL -X POST "$API_BASE/shares/$SHARE_ID/files/$FILE_ID/download" -o download.json
           python3 - <<'PY'
           import json, pathlib, subprocess, sys
@@ -46,39 +46,29 @@ jobs:
           unzip -q source.zip -d source
           PROJECT_DIR="$(dirname "$(find source -name settings.gradle.kts -print -quit)")"
           echo "PROJECT_DIR=$PWD/$PROJECT_DIR" >> "$GITHUB_ENV"
-      - name: Verify wrapper and project
+      - name: Verify project
         shell: bash
         run: |
           set -euo pipefail
           cd "$PROJECT_DIR"
           test -f gradle/wrapper/gradle-wrapper.jar
           grep -q 'applicationId = "com.example.iptvplayer"' app/build.gradle.kts
+          test -f app/src/test/java/com/example/iptvplayer/data/StreamHealthScorerTest.kt
+          test -f app/src/test/java/com/example/iptvplayer/player/DynamicBufferControllerTest.kt
           chmod +x gradlew
           ./gradlew --version
       - name: Compile Kotlin
         shell: bash
         run: |
-          set -euo pipefail
           cd "$PROJECT_DIR"
           ./gradlew --no-daemon --stacktrace :app:compileDebugKotlin
-      - name: Run Android Lint
+      - name: Unit tests
         shell: bash
         run: |
-          set +e
           cd "$PROJECT_DIR"
-          ./gradlew --no-daemon :app:lintDebug
-          status=$?
-          echo "LINT_EXIT=$status" >> "$GITHUB_ENV"
-          mkdir -p /tmp/lint-output
-          find app/build -type f \( -name 'lint-results-debug.txt' -o -name 'lint-results-debug.html' -o -name 'lint-results-debug.xml' \) -exec cp {} /tmp/lint-output/ \;
-          exit 0
-      - name: Upload lint report
-        uses: actions/upload-artifact@v4
-        with:
-          name: BROTV-LintFix-v1-Report
-          path: /tmp/lint-output/
-          retention-days: 2
-      - name: Enforce lint clean
+          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest
+      - name: Android Lint
         shell: bash
         run: |
-          test "$LINT_EXIT" = "0"
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon --stacktrace :app:lintDebug
