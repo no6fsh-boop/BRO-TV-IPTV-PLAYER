@@ -1,4 +1,4 @@
-name: Export Android Signing Tools
+name: Final Verify BROTV Signed Release
 
 on:
   push:
@@ -9,39 +9,63 @@ on:
   workflow_dispatch:
 
 jobs:
-  export-tools:
+  final-verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    env:
+      API_BASE: https://api.firestorage.ai/dev/file
+      SHARE_ID: 5PxVyjo19qz8
+      FILE_ID: 01a09d83fbbb73dfad5d254e9de780e0
+      EXPECTED_SIZE: '10567951'
+      EXPECTED_SHA256: 5855175662cbd10e720c7e343844f0a2724226913f763e40bf18c03384efde4d
     steps:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
-      - name: Install Android build tools 34.0.0
+      - name: Install Android build tools
         shell: bash
         run: |
           set -euo pipefail
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "build-tools;34.0.0"
-      - name: Prepare local signing tool bundle
+          sdkmanager "build-tools;34.0.0" "platform-tools"
+      - name: Download exact final Release APK
         shell: bash
         run: |
           set -euo pipefail
-          SRC="$ANDROID_HOME/build-tools/34.0.0"
-          test -x "$SRC/apksigner"
-          test -f "$SRC/lib/apksigner.jar"
-          test -x "$SRC/zipalign"
-          rm -rf /tmp/android-sign-tools && mkdir -p /tmp/android-sign-tools/lib
-          cp "$SRC/apksigner" /tmp/android-sign-tools/
-          cp "$SRC/zipalign" /tmp/android-sign-tools/
-          cp "$SRC/aapt" /tmp/android-sign-tools/
-          cp "$SRC/lib/apksigner.jar" /tmp/android-sign-tools/lib/
-          cp "$SRC/source.properties" /tmp/android-sign-tools/
-          chmod +x /tmp/android-sign-tools/apksigner /tmp/android-sign-tools/zipalign /tmp/android-sign-tools/aapt
-      - name: Upload Android signing tools
+          rm -rf /tmp/brotv-final && mkdir -p /tmp/brotv-final && cd /tmp/brotv-final
+          curl -fsSL -X POST "$API_BASE/shares/$SHARE_ID/files/$FILE_ID/download" -o download.json
+          python3 - <<'PY'
+          import json, pathlib, subprocess, sys
+          d=json.loads(pathlib.Path('download.json').read_text()); url=d.get('downloadUrl')
+          if not url: print(d); sys.exit(3)
+          subprocess.run(['curl','-fL','--retry','3',url,'-o','BROTV-Release-v1.0-Signed.apk'],check=True)
+          PY
+          test "$(stat -c%s BROTV-Release-v1.0-Signed.apk)" = "$EXPECTED_SIZE"
+          echo "$EXPECTED_SHA256  BROTV-Release-v1.0-Signed.apk" | sha256sum -c -
+      - name: Official Android verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/brotv-final
+          BT="$ANDROID_HOME/build-tools/34.0.0"
+          APK="BROTV-Release-v1.0-Signed.apk"
+          "$BT/zipalign" -c -p 4 "$APK"
+          "$BT/apksigner" verify --verbose --print-certs "$APK" | tee apksigner.txt
+          grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' apksigner.txt
+          grep -q 'Verified using v3 scheme (APK Signature Scheme v3): true' apksigner.txt
+          "$BT/aapt" dump badging "$APK" | tee badging.txt
+          grep -q "package: name='com.example.iptvplayer' versionCode='1' versionName='1.0'" badging.txt
+          grep -q "application-label:'BRO TV'" badging.txt
+          sha256sum "$APK" | tee BROTV-Release-v1.0-Signed.sha256
+      - name: Upload final verified Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: Android-Build-Tools-34-Signing
-          path: /tmp/android-sign-tools/
-          retention-days: 1
+          name: BROTV-Final-Verified-Release
+          path: |
+            /tmp/brotv-final/BROTV-Release-v1.0-Signed.apk
+            /tmp/brotv-final/BROTV-Release-v1.0-Signed.sha256
+            /tmp/brotv-final/apksigner.txt
+            /tmp/brotv-final/badging.txt
+          retention-days: 3
