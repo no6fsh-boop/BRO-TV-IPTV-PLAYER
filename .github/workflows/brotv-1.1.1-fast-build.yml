@@ -1,0 +1,77 @@
+name: BRO TV 1.1.1 Fast Build
+
+on:
+  push:
+    branches: [ brotv-1.1.1-build ]
+    paths:
+      - '.github/workflows/brotv-1.1.1-fast-build.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Download verified source
+        shell: bash
+        run: |
+          set -euo pipefail
+          API='https://api.firestorage.ai/dev/file'; SHARE='lEBDjxoMWwC_'; FILE_ID='01a0a0eaa57c751cb8308a4c658d1be2'; COOKIE="$RUNNER_TEMP/fs.cookies"
+          SESSION=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/cushion-sessions" -H 'Content-Type: application/json' --data '{"password":null}')
+          CID=$(printf '%s' "$SESSION" | python3 -c 'import json,sys; print(json.load(sys.stdin)["cushionId"])')
+          curl -sSfL -c "$COOKIE" -b "$COOKIE" "https://firestorage.ai/ja/go/$CID/" -o "$RUNNER_TEMP/go.html"
+          META=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/files/$FILE_ID/download")
+          URL=$(printf '%s' "$META" | python3 -c 'import json,sys; print(json.load(sys.stdin)["downloadUrl"])')
+          curl -sSfL "$URL" -o "$RUNNER_TEMP/source.zip"
+          echo 'c381a0660d98704937598b2e272472496686043fab748123f55cf9b42b8e3c65  '"$RUNNER_TEMP/source.zip" | sha256sum -c -
+          mkdir project && unzip -q "$RUNNER_TEMP/source.zip" -d project
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Inspect preinstalled Android SDK
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          test -d "$ANDROID_HOME"
+          ls "$ANDROID_HOME/platforms" | tail -20
+          ls "$ANDROID_HOME/build-tools" | tail -20
+
+      - name: Verify version and run tests
+        working-directory: project
+        run: |
+          grep -q 'versionCode = 3' app/build.gradle.kts
+          grep -q 'versionName = "1.1.1"' app/build.gradle.kts
+          chmod +x gradlew
+          ./gradlew --no-daemon testDebugUnitTest
+
+      - name: Build and verify APK
+        working-directory: project
+        run: |
+          ./gradlew --no-daemon assembleDebug
+          APK='app/build/outputs/apk/debug/app-debug.apk'
+          test -s "$APK"
+          unzip -t "$APK" >/dev/null
+          sha256sum "$APK" | tee "$GITHUB_WORKSPACE/apk-sha256.txt"
+          cp "$APK" "$GITHUB_WORKSPACE/BRO-TV-1.1.1.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BRO-TV-1.1.1-APK
+          path: |
+            BRO-TV-1.1.1.apk
+            apk-sha256.txt
+          if-no-files-found: error
+
+      - name: Publish APK release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view bro-tv-1.1.1 >/dev/null 2>&1; then
+            gh release upload bro-tv-1.1.1 BRO-TV-1.1.1.apk apk-sha256.txt --clobber
+          else
+            gh release create bro-tv-1.1.1 BRO-TV-1.1.1.apk apk-sha256.txt --title 'BRO TV 1.1.1' --notes 'Installable debug-signed APK built and tested from the verified BRO TV 1.1.1 source.'
+          fi
