@@ -1,0 +1,30 @@
+name: BRO TV 1.1.1 Build
+
+on:
+  push:
+    branches: [ brotv-1.1.1-build ]
+    paths:
+      - '.github/workflows/brotv-1.1.1-build.yml'
+
+permissions:
+  contents: write
+
+env:
+  SOURCE_SHARE: https://firestorage.ai/ja/f/lEBDjxoMWwC_
+
+jobs:
+  probe-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe source share
+        shell: bash
+        run: |
+          set -euxo pipefail
+          curl -L --fail --silent --show-error "$SOURCE_SHARE" -o share.html
+          file share.html
+          wc -c share.html
+          echo '--- candidate URLs ---'
+          grep -Eo 'https?://[^"<> ]+' share.html | head -80 || true
+          echo '--- download hints ---'
+          grep -Eio '.{0,120}(download|zip|01a0a0eaa57c751cb8308a4c658d1be2|lGaTpiw2yjAiBpN5).{0,180}' share.html | head -80 || true
