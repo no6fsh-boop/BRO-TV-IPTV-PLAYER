@@ -79,16 +79,12 @@ jobs:
           ./gradlew --no-daemon --stacktrace :app:assembleDebug
           test -s app/build/outputs/apk/debug/app-debug.apk
           sha256sum app/build/outputs/apk/debug/app-debug.apk | tee /tmp/feature02-apk.sha256
-      - name: Detect Android TV image
-        id: tvimage
+      - name: Verify Android TV API 30 image exists
         shell: bash
         run: |
           set -euo pipefail
           sdkmanager --list > /tmp/sdk-list.txt
-          API="$(grep -oE 'system-images;android-[0-9]+;android-tv;x86_64' /tmp/sdk-list.txt | sed -E 's/system-images;android-([0-9]+);android-tv;x86_64/\1/' | sort -nr | head -n1)"
-          test -n "$API"
-          echo "api=$API" >> "$GITHUB_OUTPUT"
-          echo "Using Android TV API $API"
+          grep -q 'system-images;android-30;android-tv;x86_64' /tmp/sdk-list.txt
       - name: Enable KVM
         shell: bash
         run: |
@@ -96,7 +92,7 @@ jobs:
       - name: Android TV install and startup smoke test
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: ${{ steps.tvimage.outputs.api }}
+          api-level: 30
           target: android-tv
           arch: x86_64
           profile: tv_1080p
@@ -106,13 +102,14 @@ jobs:
           disable-animations: true
           emulator-options: -no-snapshot-load -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           script: |
-            set -euo pipefail
+            set -eu
             cd "$PROJECT_DIR"
             APK="app/build/outputs/apk/debug/app-debug.apk"
             adb install -r "$APK"
             adb shell am force-stop com.example.iptvplayer
             adb logcat -c
-            adb shell am start -W -n com.example.iptvplayer/.MainActivity | tee /tmp/feature02-start.txt
+            adb shell am start -W -n com.example.iptvplayer/.MainActivity > /tmp/feature02-start.txt
+            cat /tmp/feature02-start.txt
             grep -q 'Status: ok' /tmp/feature02-start.txt
             sleep 15
             PID="$(adb shell pidof com.example.iptvplayer | tr -d '\r')"
