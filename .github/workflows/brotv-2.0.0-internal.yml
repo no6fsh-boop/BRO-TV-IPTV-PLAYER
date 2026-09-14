@@ -29,29 +29,23 @@ jobs:
           echo '19d85bd4e9bcb9177046f060b89294e3d3ab9417fa7440de6234b8fd279b7a23  '"$RUNNER_TEMP/source.zip" | sha256sum -c -
           mkdir -p "$GITHUB_WORKSPACE/project"
           unzip -q "$RUNNER_TEMP/source.zip" -d "$GITHUB_WORKSPACE/project"
-
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-
       - name: Inspect Android SDK
         run: test -d "${ANDROID_HOME:-/nonexistent}"
-
       - name: Verify source version
         working-directory: project
         run: |
-          grep -n 'versionCode = 8' app/build.gradle.kts
+          grep -n 'versionCode = 20' app/build.gradle.kts
           grep -n 'versionName = "2.0.0"' app/build.gradle.kts
-
       - name: Run unit tests
         working-directory: project
         run: chmod +x gradlew && ./gradlew --no-daemon testDebugUnitTest
-
       - name: Build debug APK
         working-directory: project
         run: ./gradlew --no-daemon assembleDebug
-
       - name: Verify APK
         working-directory: project
         run: |
@@ -59,7 +53,6 @@ jobs:
           test -s "$APK"
           unzip -t "$APK" >/dev/null
           sha256sum "$APK" | tee "$GITHUB_WORKSPACE/apk-sha256.txt"
-
       - uses: actions/upload-artifact@v4
         with:
           name: BRO-TV-2.0.0-INTERNAL
