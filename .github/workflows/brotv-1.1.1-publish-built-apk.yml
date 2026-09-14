@@ -1,0 +1,48 @@
+name: Publish Built BRO TV 1.1.1 APK
+
+on:
+  push:
+    branches: [ brotv-1.1.1-build ]
+    paths:
+      - '.github/workflows/brotv-1.1.1-publish-built-apk.yml'
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download verified build artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl -sSfL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/10360906078/zip" \
+            -o artifact.zip
+          unzip -q artifact.zip
+          test -s BRO-TV-1.1.1.apk
+          echo 'bcfe944dffad6555dc3f27f804310615c69b994047bc136aa8be8c83093f5f7b  BRO-TV-1.1.1.apk' | sha256sum -c -
+          unzip -t BRO-TV-1.1.1.apk >/dev/null
+          printf '%s  %s\n' 'bcfe944dffad6555dc3f27f804310615c69b994047bc136aa8be8c83093f5f7b' 'BRO-TV-1.1.1.apk' > apk-sha256.txt
+
+      - name: Publish direct download release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          REPO="$GITHUB_REPOSITORY"
+          if gh release view bro-tv-1.1.1 --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload bro-tv-1.1.1 BRO-TV-1.1.1.apk apk-sha256.txt --clobber --repo "$REPO"
+          else
+            gh release create bro-tv-1.1.1 BRO-TV-1.1.1.apk apk-sha256.txt \
+              --repo "$REPO" \
+              --target brotv-1.1.1-build \
+              --title 'BRO TV 1.1.1' \
+              --notes 'Installable debug-signed Android APK. Source SHA-256: c381a0660d98704937598b2e272472496686043fab748123f55cf9b42b8e3c65. Unit tests and assembleDebug passed. APK integrity verified.'
+          fi
