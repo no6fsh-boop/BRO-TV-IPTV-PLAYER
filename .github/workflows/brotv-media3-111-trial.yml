@@ -1,0 +1,54 @@
+name: BRO TV Media3 1.11 Trial
+
+on:
+  push:
+    branches: [ brotv-media3-111-trial ]
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download Media3 trial source
+        shell: bash
+        run: |
+          set -euo pipefail
+          API='https://api.firestorage.ai/dev/file'
+          SHARE='e_c_37ZdfBwI'
+          FILE_ID='01a0a22c033c74beb8a620fdf1680b6d'
+          COOKIE="$RUNNER_TEMP/firestorage.cookies"
+          SESSION=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/cushion-sessions" -H 'Content-Type: application/json' --data '{"password":null}')
+          CUSHION_ID=$(printf '%s' "$SESSION" | python3 -c 'import json,sys; print(json.load(sys.stdin)["cushionId"])')
+          curl -sSfL -c "$COOKIE" -b "$COOKIE" "https://firestorage.ai/ja/go/$CUSHION_ID/" -o "$RUNNER_TEMP/cushion.html"
+          DOWNLOAD_META=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/files/$FILE_ID/download")
+          DOWNLOAD_URL=$(printf '%s' "$DOWNLOAD_META" | python3 -c 'import json,sys; print(json.load(sys.stdin)["downloadUrl"])')
+          curl -sSfL "$DOWNLOAD_URL" -o "$RUNNER_TEMP/source.zip"
+          echo '41ffd8c9d9053a3ab2a8ce2bf460219a713d7bc4131262ca79107ae6877afd59  '"$RUNNER_TEMP/source.zip" | sha256sum -c -
+          mkdir project
+          unzip -q "$RUNNER_TEMP/source.zip" -d project
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Verify trial dependency set
+        working-directory: project
+        run: |
+          grep -n 'minSdk = 23' app/build.gradle.kts
+          grep -n 'media3-exoplayer:1.11.0' app/build.gradle.kts
+          grep -n 'media3-exoplayer-hls:1.11.0' app/build.gradle.kts
+
+      - name: Compile and unit test
+        working-directory: project
+        run: chmod +x gradlew && ./gradlew --no-daemon testDebugUnitTest
+
+      - name: Release lint
+        working-directory: project
+        run: ./gradlew --no-daemon lintRelease
+
+      - name: Release compile
+        working-directory: project
+        run: ./gradlew --no-daemon assembleRelease bundleRelease
