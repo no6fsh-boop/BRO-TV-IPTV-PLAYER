@@ -1,0 +1,138 @@
+name: Validate BROTV Feature 04 Native Timeshift
+
+on:
+  push:
+    branches:
+      - review/brotv-fixed-source-20260914
+    paths:
+      - '.github/workflows/validate-feature04-native-timeshift.yml'
+  workflow_dispatch:
+
+jobs:
+  validate-feature04:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      API_BASE: https://api.firestorage.ai/dev/file
+      SHARE_ID: 2HfFIDwp3vXK
+      FILE_ID: 01a09edbe1c67533bce42dbb2b2d5850
+      EXPECTED_SIZE: '3634174'
+      EXPECTED_SHA256: 5175f040b0b83206166e65a182100c577a3ec2e73ded87438236aba42ab69a3a
+    steps:
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK 34
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+      - name: Download exact feature source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/brotv-feature04 && mkdir -p /tmp/brotv-feature04 && cd /tmp/brotv-feature04
+          curl -fsSL -X POST "$API_BASE/shares/$SHARE_ID/files/$FILE_ID/download" -o download.json
+          python3 - <<'PY'
+          import json, pathlib, subprocess, sys
+          d=json.loads(pathlib.Path('download.json').read_text())
+          url=d.get('downloadUrl')
+          if not url:
+              print(d); sys.exit(3)
+          subprocess.run(['curl','-fL','--retry','3',url,'-o','source.zip'],check=True)
+          PY
+          test "$(stat -c%s source.zip)" = "$EXPECTED_SIZE"
+          echo "$EXPECTED_SHA256  source.zip" | sha256sum -c -
+          unzip -q source.zip -d source
+          PROJECT_DIR="$(dirname "$(find source -name settings.gradle.kts -print -quit)")"
+          test -n "$PROJECT_DIR"
+          echo "PROJECT_DIR=$PWD/$PROJECT_DIR" >> "$GITHUB_ENV"
+      - name: Static feature checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          grep -q 'object LiveTimeshiftPolicy' app/src/main/java/com/example/iptvplayer/player/LiveTimeshiftPolicy.kt
+          grep -q 'LiveTimeshiftPolicyTest' app/src/test/java/com/example/iptvplayer/player/LiveTimeshiftPolicyTest.kt
+          grep -q 'btnGoLive' app/src/main/res/layout/activity_full_player.xml
+          grep -q 'goToLiveEdge' app/src/main/java/com/example/iptvplayer/ui/FullPlayerActivity.kt
+      - name: Compile Kotlin
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace :app:compileDebugKotlin
+      - name: Unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest
+      - name: Android Lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon --stacktrace :app:lintDebug
+      - name: Assemble Debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon --stacktrace :app:assembleDebug
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          sha256sum app/build/outputs/apk/debug/app-debug.apk | tee /tmp/feature04-apk.sha256
+      - name: Detect available Android TV image
+        id: tvimage
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager --list > /tmp/sdk-list.txt
+          API="$(grep -oE 'system-images;android-[0-9]+;android-tv;x86_64' /tmp/sdk-list.txt | sed -E 's/system-images;android-([0-9]+);android-tv;x86_64/\1/' | sort -nr | head -n1)"
+          test -n "$API"
+          echo "api=$API" >> "$GITHUB_OUTPUT"
+      - name: Enable KVM
+        shell: bash
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+      - name: Android TV install and startup smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ steps.tvimage.outputs.api }}
+          target: android-tv
+          arch: x86_64
+          profile: tv_1080p
+          ram-size: 2048M
+          heap-size: 512M
+          emulator-boot-timeout: 900
+          disable-animations: true
+          emulator-options: -no-snapshot-load -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: |
+            adb install -r "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
+            adb shell am force-stop com.example.iptvplayer
+            adb logcat -c
+            adb shell am start -W -n com.example.iptvplayer/.MainActivity > /tmp/feature04-start.txt
+            grep -q 'Status: ok' /tmp/feature04-start.txt
+            sleep 12
+            adb shell pidof com.example.iptvplayer > /tmp/feature04-pid.txt
+            grep -Eq '^[0-9]+' /tmp/feature04-pid.txt
+            adb logcat -d > /tmp/feature04-logcat.txt
+            python3 -c 'import pathlib,sys; p=pathlib.Path("/tmp/feature04-logcat.txt").read_text(errors="ignore"); sys.exit(1 if ("FATAL EXCEPTION" in p and "Process: com.example.iptvplayer" in p) else 0)'
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BROTV-Feature04-NativeTimeshift-Test-Evidence
+          path: |
+            /tmp/feature04-apk.sha256
+            /tmp/feature04-start.txt
+            /tmp/feature04-pid.txt
+            /tmp/feature04-logcat.txt
+            /tmp/brotv-feature04/source/IPTVPlayer/app/build/reports/tests/testDebugUnitTest/
+            /tmp/brotv-feature04/source/IPTVPlayer/app/build/reports/lint-results-debug.html
+            /tmp/brotv-feature04/source/IPTVPlayer/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 3
