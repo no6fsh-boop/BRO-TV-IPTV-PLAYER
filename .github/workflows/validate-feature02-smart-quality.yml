@@ -79,12 +79,16 @@ jobs:
           ./gradlew --no-daemon --stacktrace :app:assembleDebug
           test -s app/build/outputs/apk/debug/app-debug.apk
           sha256sum app/build/outputs/apk/debug/app-debug.apk | tee /tmp/feature02-apk.sha256
-      - name: Verify Android TV API 30 image exists
+      - name: Detect available Android TV image
+        id: tvimage
         shell: bash
         run: |
           set -euo pipefail
           sdkmanager --list > /tmp/sdk-list.txt
-          grep -q 'system-images;android-30;android-tv;x86_64' /tmp/sdk-list.txt
+          API="$(grep -oE 'system-images;android-[0-9]+;android-tv;x86_64' /tmp/sdk-list.txt | sed -E 's/system-images;android-([0-9]+);android-tv;x86_64/\1/' | sort -nr | head -n1)"
+          test -n "$API"
+          echo "api=$API" >> "$GITHUB_OUTPUT"
+          echo "Using Android TV API $API"
       - name: Enable KVM
         shell: bash
         run: |
@@ -92,7 +96,7 @@ jobs:
       - name: Android TV install and startup smoke test
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 30
+          api-level: ${{ steps.tvimage.outputs.api }}
           target: android-tv
           arch: x86_64
           profile: tv_1080p
