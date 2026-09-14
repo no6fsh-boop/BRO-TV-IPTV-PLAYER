@@ -14,10 +14,10 @@ jobs:
     timeout-minutes: 60
     env:
       API_BASE: https://api.firestorage.ai/dev/file
-      SHARE_ID: 3M6OXIROMtc0
-      FILE_ID: 01a09dd705ee75278cc58f630cde3a19
-      EXPECTED_SIZE: '3631494'
-      EXPECTED_SHA256: 82f3c0addb0cd38a674d85f919c78d051bb307bcb92e691f22784a384e26bee2
+      SHARE_ID: qq2gqjJ4qXIj
+      FILE_ID: 01a09ddbfbca76e99503d982eb4e9603
+      EXPECTED_SIZE: '3631511'
+      EXPECTED_SHA256: f27e386a08289a704a19da23ce7be41d48a02ee8a4ba59d22ec2bbbdf15bed82
     steps:
       - uses: actions/setup-java@v5
         with:
