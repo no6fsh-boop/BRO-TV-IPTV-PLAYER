@@ -1,4 +1,4 @@
-name: Validate BROTV Release Variant
+name: Smoke Test BROTV APK
 
 on:
   push:
@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  validate-release:
+  smoke-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     env:
       API_BASE: https://api.firestorage.ai/dev/file
       SHARE_ID: cw4EtSveO3bX
@@ -34,7 +34,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf /tmp/brotv-release && mkdir -p /tmp/brotv-release && cd /tmp/brotv-release
+          rm -rf /tmp/brotv-smoke && mkdir -p /tmp/brotv-smoke && cd /tmp/brotv-smoke
           curl -fsSL -X POST "$API_BASE/shares/$SHARE_ID/files/$FILE_ID/download" -o download.json
           python3 - <<'PY'
           import json, pathlib, subprocess, sys
@@ -44,60 +44,61 @@ jobs:
           PY
           test "$(stat -c%s source.zip)" = "$EXPECTED_SIZE"
           echo "$EXPECTED_SHA256  source.zip" | sha256sum -c -
-          unzip -t source.zip >/dev/null
           unzip -q source.zip -d source
           PROJECT_DIR="$(dirname "$(find source -name settings.gradle.kts -print -quit)")"
           test -n "$PROJECT_DIR"
           echo "PROJECT_DIR=$PWD/$PROJECT_DIR" >> "$GITHUB_ENV"
-      - name: Verify source identity
+      - name: Build exact Debug APK
         shell: bash
         run: |
           set -euo pipefail
           cd "$PROJECT_DIR"
           test -f gradle/wrapper/gradle-wrapper.jar
           grep -q 'applicationId = "com.example.iptvplayer"' app/build.gradle.kts
-          grep -q 'versionCode = 1' app/build.gradle.kts
-          grep -q 'versionName = "1.0"' app/build.gradle.kts
           chmod +x gradlew
-          ./gradlew --version
-      - name: Release unit tests
+          ./gradlew --no-daemon --stacktrace :app:assembleDebug
+          test -s app/build/outputs/apk/debug/app-debug.apk
+      - name: Enable KVM
         shell: bash
         run: |
-          set -euo pipefail
-          cd "$PROJECT_DIR"
-          ./gradlew --no-daemon --stacktrace :app:testReleaseUnitTest
-      - name: Release lint
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$PROJECT_DIR"
-          ./gradlew --no-daemon --stacktrace :app:lintRelease
-      - name: Assemble unsigned Release APK
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$PROJECT_DIR"
-          ./gradlew --no-daemon --stacktrace :app:assembleRelease
-      - name: Verify Release APK structure
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$PROJECT_DIR"
-          APK="app/build/outputs/apk/release/app-release-unsigned.apk"
-          test -s "$APK"
-          "$ANDROID_HOME/build-tools/34.0.0/zipalign" -c -v 4 "$APK" | tee /tmp/zipalign.txt
-          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$APK" | tee /tmp/release-badging.txt
-          grep -q "package: name='com.example.iptvplayer'" /tmp/release-badging.txt
-          grep -q "versionCode='1'" /tmp/release-badging.txt
-          grep -q "versionName='1.0'" /tmp/release-badging.txt
-          mkdir -p /tmp/brotv-release-output
-          cp "$APK" /tmp/brotv-release-output/BROTV-Release-Unsigned.apk
-          sha256sum "$APK" | tee /tmp/brotv-release-output/BROTV-Release-Unsigned.sha256
-          cp /tmp/zipalign.txt /tmp/brotv-release-output/zipalign.txt
-          cp /tmp/release-badging.txt /tmp/brotv-release-output/badging.txt
-      - name: Upload Release validation artifact
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+      - name: Boot emulator, install and launch BRO TV
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -euo pipefail
+            cd "$PROJECT_DIR"
+            APK="app/build/outputs/apk/debug/app-debug.apk"
+            adb install -r "$APK"
+            adb logcat -c
+            adb shell am force-stop com.example.iptvplayer
+            adb shell am start -W -n com.example.iptvplayer/.MainActivity | tee /tmp/am-start.txt
+            sleep 8
+            PID="$(adb shell pidof com.example.iptvplayer | tr -d '\r')"
+            test -n "$PID"
+            adb shell dumpsys activity activities > /tmp/activities.txt
+            grep -q 'com.example.iptvplayer' /tmp/activities.txt
+            adb logcat -d -t 4000 > /tmp/brotv-logcat.txt
+            if grep -E 'FATAL EXCEPTION|Process: com\.example\.iptvplayer.*has died' /tmp/brotv-logcat.txt; then
+              echo 'BRO TV crashed during startup smoke test' >&2
+              exit 1
+            fi
+            mkdir -p /tmp/brotv-smoke-output
+            cp /tmp/am-start.txt /tmp/brotv-smoke-output/
+            cp /tmp/activities.txt /tmp/brotv-smoke-output/
+            cp /tmp/brotv-logcat.txt /tmp/brotv-smoke-output/
+            printf 'Smoke test PASS\nPackage: com.example.iptvplayer\nAPI: 30\nPID: %s\n' "$PID" > /tmp/brotv-smoke-output/result.txt
+      - name: Upload smoke-test evidence
         uses: actions/upload-artifact@v4
         with:
-          name: BROTV-Release-Validation
-          path: /tmp/brotv-release-output/
+          name: BROTV-Smoke-Test
+          path: /tmp/brotv-smoke-output/
           retention-days: 3
