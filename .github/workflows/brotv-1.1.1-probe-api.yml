@@ -1,0 +1,16 @@
+name: BRO TV 1.1.1 Probe API
+
+on:
+  push:
+    branches: [ brotv-1.1.1-build ]
+    paths:
+      - '.github/workflows/brotv-1.1.1-probe-api.yml'
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect firestorage API bundle
+        run: |
+          curl -L --fail --silent --show-error 'https://firestorage.ai/_next/static/chunks/4899-d89df949f2dbd5af.js' -o client.js
+          grep -aEio '.{0,160}(download|fetch|/api/|presign|signed|shareId|publicId).{0,320}' client.js | head -200 || true
