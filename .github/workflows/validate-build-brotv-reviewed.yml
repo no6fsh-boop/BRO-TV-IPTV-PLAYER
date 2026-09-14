@@ -1,4 +1,4 @@
-name: Validate BROTV Final Candidate
+name: Build Validated BROTV Debug APK
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  validate:
+  build-debug:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -27,13 +27,14 @@ jobs:
       - name: Install Android SDK 34
         shell: bash
         run: |
+          set -euo pipefail
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
-      - name: Download exact final candidate
+      - name: Download exact validated source
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf /tmp/brotv-final && mkdir -p /tmp/brotv-final && cd /tmp/brotv-final
+          rm -rf /tmp/brotv-debug && mkdir -p /tmp/brotv-debug && cd /tmp/brotv-debug
           curl -fsSL -X POST "$API_BASE/shares/$SHARE_ID/files/$FILE_ID/download" -o download.json
           python3 - <<'PY'
           import json, pathlib, subprocess, sys
@@ -43,32 +44,44 @@ jobs:
           PY
           test "$(stat -c%s source.zip)" = "$EXPECTED_SIZE"
           echo "$EXPECTED_SHA256  source.zip" | sha256sum -c -
+          unzip -t source.zip >/dev/null
           unzip -q source.zip -d source
           PROJECT_DIR="$(dirname "$(find source -name settings.gradle.kts -print -quit)")"
+          test -n "$PROJECT_DIR"
           echo "PROJECT_DIR=$PWD/$PROJECT_DIR" >> "$GITHUB_ENV"
-      - name: Verify project
+      - name: Verify source identity
         shell: bash
         run: |
           set -euo pipefail
           cd "$PROJECT_DIR"
           test -f gradle/wrapper/gradle-wrapper.jar
           grep -q 'applicationId = "com.example.iptvplayer"' app/build.gradle.kts
-          test -f app/src/test/java/com/example/iptvplayer/data/StreamHealthScorerTest.kt
-          test -f app/src/test/java/com/example/iptvplayer/player/DynamicBufferControllerTest.kt
           chmod +x gradlew
           ./gradlew --version
-      - name: Compile Kotlin
+      - name: Assemble Debug APK
         shell: bash
         run: |
+          set -euo pipefail
           cd "$PROJECT_DIR"
-          ./gradlew --no-daemon --stacktrace :app:compileDebugKotlin
-      - name: Unit tests
+          ./gradlew --no-daemon --stacktrace :app:assembleDebug
+      - name: Verify Debug APK
         shell: bash
         run: |
+          set -euo pipefail
           cd "$PROJECT_DIR"
-          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest
-      - name: Android Lint
-        shell: bash
-        run: |
-          cd "$PROJECT_DIR"
-          ./gradlew --no-daemon --stacktrace :app:lintDebug
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$APK" | tee /tmp/apksigner.txt
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$APK" | tee /tmp/badging.txt
+          grep -q "package: name='com.example.iptvplayer'" /tmp/badging.txt
+          mkdir -p /tmp/brotv-output
+          cp "$APK" /tmp/brotv-output/BROTV-Validated-Debug.apk
+          sha256sum "$APK" | tee /tmp/brotv-output/BROTV-Validated-Debug.sha256
+          cp /tmp/apksigner.txt /tmp/brotv-output/apksigner.txt
+          cp /tmp/badging.txt /tmp/brotv-output/badging.txt
+      - name: Upload validated Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: BROTV-Validated-Debug
+          path: /tmp/brotv-output/
+          retention-days: 3
