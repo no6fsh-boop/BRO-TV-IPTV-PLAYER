@@ -74,31 +74,30 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: |
-            set -euo pipefail
+            set -eu
+            mkdir -p /tmp/brotv-smoke-output
             cd "$PROJECT_DIR"
             APK="app/build/outputs/apk/debug/app-debug.apk"
-            adb install -r "$APK"
+            adb install -r "$APK" | tee /tmp/brotv-smoke-output/install.txt
             adb logcat -c
             adb shell am force-stop com.example.iptvplayer
-            adb shell am start -W -n com.example.iptvplayer/.MainActivity | tee /tmp/am-start.txt
+            adb shell am start -W -n com.example.iptvplayer/.MainActivity | tee /tmp/brotv-smoke-output/am-start.txt
             sleep 8
             PID="$(adb shell pidof com.example.iptvplayer | tr -d '\r')"
             test -n "$PID"
-            adb shell dumpsys activity activities > /tmp/activities.txt
-            grep -q 'com.example.iptvplayer' /tmp/activities.txt
-            adb logcat -d -t 4000 > /tmp/brotv-logcat.txt
-            if grep -E 'FATAL EXCEPTION|Process: com\.example\.iptvplayer.*has died' /tmp/brotv-logcat.txt; then
+            adb shell dumpsys activity activities > /tmp/brotv-smoke-output/activities.txt
+            grep -q 'com.example.iptvplayer' /tmp/brotv-smoke-output/activities.txt
+            adb logcat -d -t 4000 > /tmp/brotv-smoke-output/brotv-logcat.txt
+            if grep -E 'FATAL EXCEPTION|Process: com\.example\.iptvplayer.*has died' /tmp/brotv-smoke-output/brotv-logcat.txt; then
               echo 'BRO TV crashed during startup smoke test' >&2
               exit 1
             fi
-            mkdir -p /tmp/brotv-smoke-output
-            cp /tmp/am-start.txt /tmp/brotv-smoke-output/
-            cp /tmp/activities.txt /tmp/brotv-smoke-output/
-            cp /tmp/brotv-logcat.txt /tmp/brotv-smoke-output/
             printf 'Smoke test PASS\nPackage: com.example.iptvplayer\nAPI: 30\nPID: %s\n' "$PID" > /tmp/brotv-smoke-output/result.txt
       - name: Upload smoke-test evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: BROTV-Smoke-Test
           path: /tmp/brotv-smoke-output/
+          if-no-files-found: warn
           retention-days: 3
