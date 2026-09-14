@@ -2,34 +2,68 @@ name: BRO TV 2.0.0 Internal Verification
 
 on:
   push:
-    branches: [brotv-2.0.0-internal]
+    branches: [ brotv-2.0.0-internal ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Download verified source
+        shell: bash
         run: |
-          curl -fL 'https://firestorage.ai/api/files/01a0a20f20807397a12a8ccd87721d93/download' -o source.zip || curl -fL 'https://firestorage.ai/ja/f/CF4LG5ozmfBq' -o source.zip
-          unzip -q source.zip -d src
+          set -euo pipefail
+          API='https://api.firestorage.ai/dev/file'
+          SHARE='CF4LG5ozmfBq'
+          FILE_ID='01a0a20f20807397a12a8ccd87721d93'
+          COOKIE="$RUNNER_TEMP/firestorage.cookies"
+          SESSION=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/cushion-sessions" -H 'Content-Type: application/json' --data '{"password":null}')
+          CUSHION_ID=$(printf '%s' "$SESSION" | python3 -c 'import json,sys; print(json.load(sys.stdin)["cushionId"])')
+          curl -sSfL -c "$COOKIE" -b "$COOKIE" "https://firestorage.ai/ja/go/$CUSHION_ID/" -o "$RUNNER_TEMP/cushion.html"
+          DOWNLOAD_META=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/files/$FILE_ID/download")
+          DOWNLOAD_URL=$(printf '%s' "$DOWNLOAD_META" | python3 -c 'import json,sys; print(json.load(sys.stdin)["downloadUrl"])')
+          curl -sSfL "$DOWNLOAD_URL" -o "$RUNNER_TEMP/source.zip"
+          echo '19d85bd4e9bcb9177046f060b89294e3d3ab9417fa7440de6234b8fd279b7a23  '"$RUNNER_TEMP/source.zip" | sha256sum -c -
+          mkdir -p "$GITHUB_WORKSPACE/project"
+          unzip -q "$RUNNER_TEMP/source.zip" -d "$GITHUB_WORKSPACE/project"
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
+
       - name: Inspect Android SDK
-        run: test -d "$ANDROID_HOME/platforms/android-34"
+        run: test -d "${ANDROID_HOME:-/nonexistent}"
+
       - name: Verify source version
-        working-directory: src
-        run: grep -R 'versionName = "2.0.0"' app/build.gradle.kts
+        working-directory: project
+        run: |
+          grep -n 'versionCode = 8' app/build.gradle.kts
+          grep -n 'versionName = "2.0.0"' app/build.gradle.kts
+
       - name: Run unit tests
-        working-directory: src
+        working-directory: project
         run: chmod +x gradlew && ./gradlew --no-daemon testDebugUnitTest
+
       - name: Build debug APK
-        working-directory: src
+        working-directory: project
         run: ./gradlew --no-daemon assembleDebug
+
       - name: Verify APK
-        run: unzip -t src/app/build/outputs/apk/debug/app-debug.apk
+        working-directory: project
+        run: |
+          APK='app/build/outputs/apk/debug/app-debug.apk'
+          test -s "$APK"
+          unzip -t "$APK" >/dev/null
+          sha256sum "$APK" | tee "$GITHUB_WORKSPACE/apk-sha256.txt"
+
       - uses: actions/upload-artifact@v4
         with:
           name: BRO-TV-2.0.0-INTERNAL
-          path: src/app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            project/app/build/outputs/apk/debug/app-debug.apk
+            apk-sha256.txt
+          retention-days: 7
