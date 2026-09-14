@@ -1,8 +1,8 @@
-name: BRO TV 2.0.0 Final Build
+name: BRO TV 2.0.0 RC2 Commercial Gate
 
 on:
   push:
-    branches: [ brotv-2.0.0-final-build, brotv-2.0.0-source-export ]
+    branches: [ brotv-2.0.0-rc2-build ]
   workflow_dispatch:
 
 permissions:
@@ -12,13 +12,13 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
-      - name: Download verified final source
+      - name: Download verified RC2 source
         shell: bash
         run: |
           set -euo pipefail
           API='https://api.firestorage.ai/dev/file'
-          SHARE='JeJI0IGVtGpB'
-          FILE_ID='01a0a1f397b176eeb243a4e5ec30044f'
+          SHARE='vremRdzTaFms'
+          FILE_ID='01a0a22a87b574048e29687b692afc3f'
           COOKIE="$RUNNER_TEMP/firestorage.cookies"
           SESSION=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/cushion-sessions" -H 'Content-Type: application/json' --data '{"password":null}')
           CUSHION_ID=$(printf '%s' "$SESSION" | python3 -c 'import json,sys; print(json.load(sys.stdin)["cushionId"])')
@@ -26,7 +26,7 @@ jobs:
           DOWNLOAD_META=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/files/$FILE_ID/download")
           DOWNLOAD_URL=$(printf '%s' "$DOWNLOAD_META" | python3 -c 'import json,sys; print(json.load(sys.stdin)["downloadUrl"])')
           curl -sSfL "$DOWNLOAD_URL" -o "$RUNNER_TEMP/source.zip"
-          echo 'f15b3726b16ea256e28de887974a11008f152dcdf76e328a419759e44a585dc9  '"$RUNNER_TEMP/source.zip" | sha256sum -c -
+          echo '3458a8d314dfd76a5e1311f141d9e95bd0054909cb7a863de2fcf79535b32da6  '"$RUNNER_TEMP/source.zip" | sha256sum -c -
           mkdir -p "$GITHUB_WORKSPACE/project"
           unzip -q "$RUNNER_TEMP/source.zip" -d "$GITHUB_WORKSPACE/project"
 
@@ -35,7 +35,7 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Verify commercial identity
+      - name: Verify commercial identity and privacy baseline
         working-directory: project
         shell: bash
         run: |
@@ -45,12 +45,17 @@ jobs:
           grep -n 'versionCode = 20' app/build.gradle.kts
           grep -n 'versionName = "2.0.0"' app/build.gradle.kts
           ! grep -R 'com.example.iptvplayer' app/src/main app/src/test app/build.gradle.kts
+          ! grep -R 'android.permission.RECORD_AUDIO' app/src/main/AndroidManifest.xml
 
       - name: Run all unit tests
         working-directory: project
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon testDebugUnitTest
+
+      - name: Android release lint gate
+        working-directory: project
+        run: ./gradlew --no-daemon lintRelease
 
       - name: Build commercial release candidates
         working-directory: project
@@ -70,18 +75,18 @@ jobs:
           BUILD_TOOLS=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
           test -x "$BUILD_TOOLS/zipalign"
           test -f "$BUILD_TOOLS/lib/apksigner.jar"
-          "$BUILD_TOOLS/zipalign" -f 4 "$APK" "$OUT/BRO-TV-2.0.0-aligned-unsigned.apk"
-          "$BUILD_TOOLS/zipalign" -c 4 "$OUT/BRO-TV-2.0.0-aligned-unsigned.apk"
-          cp "$AAB" "$OUT/BRO-TV-2.0.0-unsigned.aab"
+          "$BUILD_TOOLS/zipalign" -f 4 "$APK" "$OUT/BRO-TV-2.0.0-RC2-aligned-unsigned.apk"
+          "$BUILD_TOOLS/zipalign" -c 4 "$OUT/BRO-TV-2.0.0-RC2-aligned-unsigned.apk"
+          cp "$AAB" "$OUT/BRO-TV-2.0.0-RC2-unsigned.aab"
           cp "$BUILD_TOOLS/lib/apksigner.jar" "$OUT/apksigner.jar"
-          cp "$RUNNER_TEMP/source.zip" "$OUT/BRO-TV-2.0.0-source.zip"
+          cp "$RUNNER_TEMP/source.zip" "$OUT/BRO-TV-2.0.0-RC2-source.zip"
           sha256sum "$OUT"/* | tee "$OUT/unsigned-sha256.txt"
-          unzip -t "$OUT/BRO-TV-2.0.0-aligned-unsigned.apk" >/dev/null
-          unzip -t "$OUT/BRO-TV-2.0.0-unsigned.aab" >/dev/null
-          unzip -t "$OUT/BRO-TV-2.0.0-source.zip" >/dev/null
+          unzip -t "$OUT/BRO-TV-2.0.0-RC2-aligned-unsigned.apk" >/dev/null
+          unzip -t "$OUT/BRO-TV-2.0.0-RC2-unsigned.aab" >/dev/null
+          unzip -t "$OUT/BRO-TV-2.0.0-RC2-source.zip" >/dev/null
 
       - uses: actions/upload-artifact@v4
         with:
-          name: BRO-TV-2.0.0-OFFLINE-SIGNING
+          name: BRO-TV-2.0.0-RC2-COMMERCIAL-GATE
           path: final-build/
           retention-days: 7
