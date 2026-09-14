@@ -1,0 +1,72 @@
+name: BRO TV 1.3.6 Integrated Verification
+
+on:
+  push:
+    branches: [ brotv-1.3.6-internal ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download verified source
+        shell: bash
+        run: |
+          set -euo pipefail
+          API='https://api.firestorage.ai/dev/file'
+          SHARE='b49DPpnprF3e'
+          FILE_ID='01a0a1ebf49573c7983aba57d444f161'
+          COOKIE="$RUNNER_TEMP/firestorage.cookies"
+          SESSION=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/cushion-sessions" -H 'Content-Type: application/json' --data '{"password":null}')
+          CUSHION_ID=$(printf '%s' "$SESSION" | python3 -c 'import json,sys; print(json.load(sys.stdin)["cushionId"])')
+          curl -sSfL -c "$COOKIE" -b "$COOKIE" "https://firestorage.ai/ja/go/$CUSHION_ID/" -o "$RUNNER_TEMP/cushion.html"
+          DOWNLOAD_META=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/files/$FILE_ID/download")
+          DOWNLOAD_URL=$(printf '%s' "$DOWNLOAD_META" | python3 -c 'import json,sys; print(json.load(sys.stdin)["downloadUrl"])')
+          curl -sSfL "$DOWNLOAD_URL" -o "$RUNNER_TEMP/source.zip"
+          echo '8cd851c2267fd39b595cea6cfb0f6c098f2e6131959ffc0ed394725ad3d500b9  '"$RUNNER_TEMP/source.zip" | sha256sum -c -
+          mkdir -p "$GITHUB_WORKSPACE/project"
+          unzip -q "$RUNNER_TEMP/source.zip" -d "$GITHUB_WORKSPACE/project"
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Verify integrated source
+        working-directory: project
+        shell: bash
+        run: |
+          grep -n 'namespace = "com.brotv.player"' app/build.gradle.kts
+          grep -n 'applicationId = "com.brotv.player"' app/build.gradle.kts
+          grep -n 'versionCode = 14' app/build.gradle.kts
+          grep -n 'versionName = "1.3.6"' app/build.gradle.kts
+          ! grep -R 'com.example.iptvplayer' app/src/main app/src/test app/build.gradle.kts
+
+      - name: Run unit tests
+        working-directory: project
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon testDebugUnitTest
+
+      - name: Build debug APK
+        working-directory: project
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: Build unsigned release artifacts
+        working-directory: project
+        run: ./gradlew --no-daemon assembleRelease bundleRelease
+
+      - name: Verify artifacts
+        working-directory: project
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEBUG='app/build/outputs/apk/debug/app-debug.apk'
+          test -s "$DEBUG"
+          unzip -t "$DEBUG" >/dev/null
+          test -s app/build/outputs/bundle/release/app-release.aab
+          find app/build/outputs/apk/release -type f -maxdepth 1 -print || true
+          sha256sum "$DEBUG" app/build/outputs/bundle/release/app-release.aab
