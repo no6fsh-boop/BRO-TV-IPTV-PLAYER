@@ -106,26 +106,20 @@ jobs:
           disable-animations: true
           emulator-options: -no-snapshot-load -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           script: |
-            set -eu
-            cd "$PROJECT_DIR"
-            APK="app/build/outputs/apk/debug/app-debug.apk"
-            adb install -r "$APK"
+            adb install -r "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
             adb shell am force-stop com.example.iptvplayer
             adb logcat -c
             adb shell am start -W -n com.example.iptvplayer/.MainActivity > /tmp/feature02-start.txt
             cat /tmp/feature02-start.txt
             grep -q 'Status: ok' /tmp/feature02-start.txt
             sleep 15
-            PID="$(adb shell pidof com.example.iptvplayer | tr -d '\r')"
-            test -n "$PID"
+            adb shell pidof com.example.iptvplayer > /tmp/feature02-pid.txt
+            grep -Eq '^[0-9]+' /tmp/feature02-pid.txt
             adb shell dumpsys activity activities > /tmp/feature02-activity.txt
             grep -q 'com.example.iptvplayer' /tmp/feature02-activity.txt
             adb logcat -d > /tmp/feature02-logcat.txt
-            if grep -E 'FATAL EXCEPTION|AndroidRuntime.*FATAL' /tmp/feature02-logcat.txt | grep -q 'com.example.iptvplayer'; then
-              echo 'BRO TV crashed during startup smoke test.' >&2
-              exit 1
-            fi
-            echo "BRO TV process alive: $PID"
+            python3 -c 'import pathlib,sys; p=pathlib.Path("/tmp/feature02-logcat.txt").read_text(errors="ignore"); sys.exit(1 if ("FATAL EXCEPTION" in p and "Process: com.example.iptvplayer" in p) else 0)'
+            cat /tmp/feature02-pid.txt
       - name: Upload test evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -134,6 +128,7 @@ jobs:
           path: |
             /tmp/feature02-apk.sha256
             /tmp/feature02-start.txt
+            /tmp/feature02-pid.txt
             /tmp/feature02-activity.txt
             /tmp/feature02-logcat.txt
             /tmp/brotv-feature02/source/IPTVPlayer/app/build/reports/tests/testDebugUnitTest/
