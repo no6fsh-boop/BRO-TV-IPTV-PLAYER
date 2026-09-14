@@ -1,0 +1,15 @@
+name: BRO TV 1.1.1 Probe Cushion
+
+on:
+  push:
+    branches: [ brotv-1.1.1-build ]
+    paths:
+      - '.github/workflows/brotv-1.1.1-probe-cushion.yml'
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve cushion session
+        run: |
+          curl -i -L --fail --silent --show-error -X POST 'https://api.firestorage.ai/dev/file/shares/lEBDjxoMWwC_/cushion-sessions' -H 'Content-Type: application/json' --data '{"password":null}'
