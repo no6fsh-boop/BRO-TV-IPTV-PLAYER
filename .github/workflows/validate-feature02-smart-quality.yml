@@ -11,7 +11,7 @@ on:
 jobs:
   validate-feature02:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       API_BASE: https://api.firestorage.ai/dev/file
       SHARE_ID: 5hgi0ON1VnEb
@@ -71,3 +71,71 @@ jobs:
           set -euo pipefail
           cd "$PROJECT_DIR"
           ./gradlew --no-daemon --stacktrace :app:lintDebug
+      - name: Assemble Debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon --stacktrace :app:assembleDebug
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          sha256sum app/build/outputs/apk/debug/app-debug.apk | tee /tmp/feature02-apk.sha256
+      - name: Detect Android TV image
+        id: tvimage
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager --list > /tmp/sdk-list.txt
+          API="$(grep -oE 'system-images;android-[0-9]+;android-tv;x86_64' /tmp/sdk-list.txt | sed -E 's/system-images;android-([0-9]+);android-tv;x86_64/\1/' | sort -nr | head -n1)"
+          test -n "$API"
+          echo "api=$API" >> "$GITHUB_OUTPUT"
+          echo "Using Android TV API $API"
+      - name: Enable KVM
+        shell: bash
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+      - name: Android TV install and startup smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ steps.tvimage.outputs.api }}
+          target: android-tv
+          arch: x86_64
+          profile: tv_1080p
+          ram-size: 2048M
+          heap-size: 512M
+          emulator-boot-timeout: 900
+          disable-animations: true
+          emulator-options: -no-snapshot-load -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: |
+            set -euo pipefail
+            cd "$PROJECT_DIR"
+            APK="app/build/outputs/apk/debug/app-debug.apk"
+            adb install -r "$APK"
+            adb shell am force-stop com.example.iptvplayer
+            adb logcat -c
+            adb shell am start -W -n com.example.iptvplayer/.MainActivity | tee /tmp/feature02-start.txt
+            grep -q 'Status: ok' /tmp/feature02-start.txt
+            sleep 15
+            PID="$(adb shell pidof com.example.iptvplayer | tr -d '\r')"
+            test -n "$PID"
+            adb shell dumpsys activity activities > /tmp/feature02-activity.txt
+            grep -q 'com.example.iptvplayer' /tmp/feature02-activity.txt
+            adb logcat -d > /tmp/feature02-logcat.txt
+            if grep -E 'FATAL EXCEPTION|AndroidRuntime.*FATAL' /tmp/feature02-logcat.txt | grep -q 'com.example.iptvplayer'; then
+              echo 'BRO TV crashed during startup smoke test.' >&2
+              exit 1
+            fi
+            echo "BRO TV process alive: $PID"
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BROTV-Feature02-Test-Evidence
+          path: |
+            /tmp/feature02-apk.sha256
+            /tmp/feature02-start.txt
+            /tmp/feature02-activity.txt
+            /tmp/feature02-logcat.txt
+            /tmp/brotv-feature02/source/IPTVPlayer/app/build/reports/tests/testDebugUnitTest/
+            /tmp/brotv-feature02/source/IPTVPlayer/app/build/reports/lint-results-debug.html
+            /tmp/brotv-feature02/source/IPTVPlayer/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 3
