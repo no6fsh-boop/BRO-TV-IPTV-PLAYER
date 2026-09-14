@@ -1,4 +1,4 @@
-name: Smoke Test BROTV APK
+name: Verify BROTV Signed Release APK
 
 on:
   push:
@@ -9,95 +9,67 @@ on:
   workflow_dispatch:
 
 jobs:
-  smoke-test:
+  verify-signed-release:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 20
     env:
       API_BASE: https://api.firestorage.ai/dev/file
-      SHARE_ID: cw4EtSveO3bX
-      FILE_ID: 01a09d72bb0c767fb66129623b7297d6
-      EXPECTED_SIZE: '3608309'
-      EXPECTED_SHA256: 1fcb50d1fed4c1109fe7879f4efecde0b555efadd94eb207a15ea7d0d27c4663
+      SHARE_ID: mTGZRIjMueek
+      FILE_ID: 01a09d7fac7f717cad58f60593e0e1a4
+      EXPECTED_SIZE: '10565009'
+      EXPECTED_SHA256: 3989e087aebbb72e0df4d09b1feafa297412fc27ce85beb5f1923dc04dc09adc
     steps:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
-      - name: Install Android SDK 34
+      - name: Install Android build tools
         shell: bash
         run: |
           set -euo pipefail
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
-      - name: Download exact clean source
+          sdkmanager "build-tools;34.0.0" "platform-tools"
+      - name: Download exact signed Release APK
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf /tmp/brotv-smoke && mkdir -p /tmp/brotv-smoke && cd /tmp/brotv-smoke
+          rm -rf /tmp/brotv-signed && mkdir -p /tmp/brotv-signed && cd /tmp/brotv-signed
           curl -fsSL -X POST "$API_BASE/shares/$SHARE_ID/files/$FILE_ID/download" -o download.json
           python3 - <<'PY'
           import json, pathlib, subprocess, sys
           d=json.loads(pathlib.Path('download.json').read_text()); url=d.get('downloadUrl')
           if not url: print(d); sys.exit(3)
-          subprocess.run(['curl','-fL','--retry','3',url,'-o','source.zip'],check=True)
+          subprocess.run(['curl','-fL','--retry','3',url,'-o','input.apk'],check=True)
           PY
-          test "$(stat -c%s source.zip)" = "$EXPECTED_SIZE"
-          echo "$EXPECTED_SHA256  source.zip" | sha256sum -c -
-          unzip -q source.zip -d source
-          PROJECT_DIR="$(dirname "$(find source -name settings.gradle.kts -print -quit)")"
-          test -n "$PROJECT_DIR"
-          echo "PROJECT_DIR=$PWD/$PROJECT_DIR" >> "$GITHUB_ENV"
-      - name: Build exact Debug APK
+          test "$(stat -c%s input.apk)" = "$EXPECTED_SIZE"
+          echo "$EXPECTED_SHA256  input.apk" | sha256sum -c -
+      - name: Verify and align signed APK
         shell: bash
         run: |
           set -euo pipefail
-          cd "$PROJECT_DIR"
-          test -f gradle/wrapper/gradle-wrapper.jar
-          grep -q 'applicationId = "com.example.iptvplayer"' app/build.gradle.kts
-          chmod +x gradlew
-          ./gradlew --no-daemon --stacktrace :app:assembleDebug
-          test -s app/build/outputs/apk/debug/app-debug.apk
-      - name: Enable KVM
-        shell: bash
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm || true
-      - name: Boot emulator, install and launch BRO TV
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 30
-          arch: x86_64
-          target: google_apis
-          profile: pixel_2
-          disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: |
-            set -eu
-            mkdir -p /tmp/brotv-smoke-output
-            cd "$PROJECT_DIR"
-            APK="app/build/outputs/apk/debug/app-debug.apk"
-            adb install -r "$APK" | tee /tmp/brotv-smoke-output/install.txt
-            adb logcat -c
-            adb shell am force-stop com.example.iptvplayer
-            adb shell am start -W -n com.example.iptvplayer/.MainActivity | tee /tmp/brotv-smoke-output/am-start.txt
-            sleep 8
-            PID="$(adb shell pidof com.example.iptvplayer | tr -d '\r')"
-            test -n "$PID"
-            adb shell dumpsys activity activities > /tmp/brotv-smoke-output/activities.txt
-            grep -q 'com.example.iptvplayer' /tmp/brotv-smoke-output/activities.txt
-            adb logcat -d -t 4000 > /tmp/brotv-smoke-output/brotv-logcat.txt
-            if grep -E 'FATAL EXCEPTION|Process: com\.example\.iptvplayer.*has died' /tmp/brotv-smoke-output/brotv-logcat.txt; then
-              echo 'BRO TV crashed during startup smoke test' >&2
-              exit 1
-            fi
-            printf 'Smoke test PASS\nPackage: com.example.iptvplayer\nAPI: 30\nPID: %s\n' "$PID" > /tmp/brotv-smoke-output/result.txt
-      - name: Upload smoke-test evidence
-        if: always()
+          cd /tmp/brotv-signed
+          BT="$ANDROID_HOME/build-tools/34.0.0"
+          if "$BT/zipalign" -c -p 4 input.apk; then
+            cp input.apk BROTV-Release-Signed.apk
+          else
+            "$BT/zipalign" -p -f 4 input.apk BROTV-Release-Signed.apk
+            "$BT/zipalign" -c -p 4 BROTV-Release-Signed.apk
+          fi
+          "$BT/apksigner" verify --verbose --print-certs BROTV-Release-Signed.apk | tee apksigner.txt
+          jarsigner -verify -verbose -certs BROTV-Release-Signed.apk > jarsigner.txt
+          "$BT/aapt" dump badging BROTV-Release-Signed.apk | tee badging.txt
+          grep -q "package: name='com.example.iptvplayer' versionCode='1' versionName='1.0'" badging.txt
+          grep -q "application-label:'BRO TV'" badging.txt
+          sha256sum BROTV-Release-Signed.apk | tee BROTV-Release-Signed.sha256
+      - name: Upload verified signed Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: BROTV-Smoke-Test
-          path: /tmp/brotv-smoke-output/
-          if-no-files-found: warn
+          name: BROTV-Verified-Signed-Release
+          path: |
+            /tmp/brotv-signed/BROTV-Release-Signed.apk
+            /tmp/brotv-signed/BROTV-Release-Signed.sha256
+            /tmp/brotv-signed/apksigner.txt
+            /tmp/brotv-signed/jarsigner.txt
+            /tmp/brotv-signed/badging.txt
           retention-days: 3
