@@ -1,0 +1,85 @@
+name: BRO TV 2.0.0 Final Build
+
+on:
+  push:
+    branches: [ brotv-2.0.0-final-build ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download verified final source
+        shell: bash
+        run: |
+          set -euo pipefail
+          API='https://api.firestorage.ai/dev/file'
+          SHARE='JeJI0IGVtGpB'
+          FILE_ID='01a0a1f397b176eeb243a4e5ec30044f'
+          COOKIE="$RUNNER_TEMP/firestorage.cookies"
+          SESSION=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/cushion-sessions" -H 'Content-Type: application/json' --data '{"password":null}')
+          CUSHION_ID=$(printf '%s' "$SESSION" | python3 -c 'import json,sys; print(json.load(sys.stdin)["cushionId"])')
+          curl -sSfL -c "$COOKIE" -b "$COOKIE" "https://firestorage.ai/ja/go/$CUSHION_ID/" -o "$RUNNER_TEMP/cushion.html"
+          DOWNLOAD_META=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/files/$FILE_ID/download")
+          DOWNLOAD_URL=$(printf '%s' "$DOWNLOAD_META" | python3 -c 'import json,sys; print(json.load(sys.stdin)["downloadUrl"])')
+          curl -sSfL "$DOWNLOAD_URL" -o "$RUNNER_TEMP/source.zip"
+          echo 'f15b3726b16ea256e28de887974a11008f152dcdf76e328a419759e44a585dc9  '"$RUNNER_TEMP/source.zip" | sha256sum -c -
+          mkdir -p "$GITHUB_WORKSPACE/project"
+          unzip -q "$RUNNER_TEMP/source.zip" -d "$GITHUB_WORKSPACE/project"
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Verify commercial identity
+        working-directory: project
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -n 'namespace = "com.brotv.player"' app/build.gradle.kts
+          grep -n 'applicationId = "com.brotv.player"' app/build.gradle.kts
+          grep -n 'versionCode = 20' app/build.gradle.kts
+          grep -n 'versionName = "2.0.0"' app/build.gradle.kts
+          ! grep -R 'com.example.iptvplayer' app/src/main app/src/test app/build.gradle.kts
+
+      - name: Run all unit tests
+        working-directory: project
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon testDebugUnitTest
+
+      - name: Build commercial release candidates
+        working-directory: project
+        run: ./gradlew --no-daemon assembleRelease bundleRelease
+
+      - name: Prepare offline-signing package
+        working-directory: project
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$GITHUB_WORKSPACE/final-build"
+          mkdir -p "$OUT"
+          APK=$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*unsigned*.apk' | head -1)
+          AAB='app/build/outputs/bundle/release/app-release.aab'
+          test -s "$APK"
+          test -s "$AAB"
+          BUILD_TOOLS=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          test -x "$BUILD_TOOLS/zipalign"
+          test -f "$BUILD_TOOLS/lib/apksigner.jar"
+          "$BUILD_TOOLS/zipalign" -f 4 "$APK" "$OUT/BRO-TV-2.0.0-aligned-unsigned.apk"
+          "$BUILD_TOOLS/zipalign" -c 4 "$OUT/BRO-TV-2.0.0-aligned-unsigned.apk"
+          cp "$AAB" "$OUT/BRO-TV-2.0.0-unsigned.aab"
+          cp "$BUILD_TOOLS/lib/apksigner.jar" "$OUT/apksigner.jar"
+          sha256sum "$OUT"/* | tee "$OUT/unsigned-sha256.txt"
+          unzip -t "$OUT/BRO-TV-2.0.0-aligned-unsigned.apk" >/dev/null
+          unzip -t "$OUT/BRO-TV-2.0.0-unsigned.aab" >/dev/null
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BRO-TV-2.0.0-OFFLINE-SIGNING
+          path: final-build/
+          retention-days: 7
