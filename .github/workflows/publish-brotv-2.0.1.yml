@@ -1,0 +1,48 @@
+name: Publish BRO TV 2.0.1 APK
+
+on:
+  push:
+    branches: [ brotv-2.0.1-public-release ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download official signed APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          API='https://api.firestorage.ai/dev/file'
+          SHARE='O-U-VR3DVrx9'
+          FILE_ID='01a0a391a02c750b829ecd7588b76518'
+          COOKIE="$RUNNER_TEMP/firestorage.cookies"
+          SESSION=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/cushion-sessions" -H 'Content-Type: application/json' --data '{"password":null}')
+          CUSHION_ID=$(printf '%s' "$SESSION" | python3 -c 'import json,sys; print(json.load(sys.stdin)["cushionId"])')
+          curl -sSfL -c "$COOKIE" -b "$COOKIE" "https://firestorage.ai/ja/go/$CUSHION_ID/" -o "$RUNNER_TEMP/cushion.html"
+          DOWNLOAD_META=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/files/$FILE_ID/download")
+          DOWNLOAD_URL=$(printf '%s' "$DOWNLOAD_META" | python3 -c 'import json,sys; print(json.load(sys.stdin)["downloadUrl"])')
+          curl -sSfL "$DOWNLOAD_URL" -o "$RUNNER_TEMP/BRO-TV-2.0.1.apk"
+          echo '200a4889a44290ec66b4c3a6d997958b635b6e86433b1b71f2864d48201b4b3a  '"$RUNNER_TEMP/BRO-TV-2.0.1.apk" | sha256sum -c -
+          printf '%s  %s\n' '200a4889a44290ec66b4c3a6d997958b635b6e86433b1b71f2864d48201b4b3a' 'BRO-TV-2.0.1.apk' > "$RUNNER_TEMP/BRO-TV-2.0.1-sha256.txt"
+
+      - name: Publish permanent GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view bro-tv-2.0.1 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload bro-tv-2.0.1 "$RUNNER_TEMP/BRO-TV-2.0.1.apk" "$RUNNER_TEMP/BRO-TV-2.0.1-sha256.txt" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create bro-tv-2.0.1 \
+              "$RUNNER_TEMP/BRO-TV-2.0.1.apk#BRO-TV-2.0.1.apk" \
+              "$RUNNER_TEMP/BRO-TV-2.0.1-sha256.txt#BRO-TV-2.0.1-sha256.txt" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title 'BRO TV 2.0.1' \
+              --notes 'Official signed BRO TV 2.0.1 Android TV focus visibility hotfix. Home card focus border now renders above artwork, with visible TV focus scaling. APK SHA-256: 200a4889a44290ec66b4c3a6d997958b635b6e86433b1b71f2864d48201b4b3a.'
+          fi
