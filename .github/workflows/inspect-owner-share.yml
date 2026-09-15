@@ -1,0 +1,36 @@
+name: Inspect BRO TV owner share metadata
+
+on:
+  push:
+    branches: [ inspect-firestorage-owner ]
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Inspect active owner/final shares without downloading file contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          API='https://api.firestorage.ai/dev/file'
+          for SHARE in 1cj8Jq4kxMOz 9dnWobChIg_o QZ2I-epdgoB_; do
+            echo "=== SHARE $SHARE ==="
+            COOKIE="$RUNNER_TEMP/$SHARE.cookies"
+            SESSION=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/cushion-sessions" -H 'Content-Type: application/json' --data '{"password":null}')
+            CUSHION_ID=$(printf '%s' "$SESSION" | python3 -c 'import json,sys; print(json.load(sys.stdin)["cushionId"])')
+            curl -sSfL -c "$COOKIE" -b "$COOKIE" "https://firestorage.ai/ja/go/$CUSHION_ID/" -o "$RUNNER_TEMP/$SHARE.html"
+            python3 - "$RUNNER_TEMP/$SHARE.html" <<'PY'
+          import re,sys,html
+          text=html.unescape(open(sys.argv[1],encoding='utf-8',errors='ignore').read())
+          names=sorted(set(re.findall(r'[^"<>\\/]{1,160}\.(?:zip|jks|keystore|txt|apk|aab|pem)', text, re.I)))
+          print('candidate filenames:')
+          for name in names[:80]: print(' -', name.strip())
+          PY
+            for PATH in "shares/$SHARE" "shares/$SHARE/files"; do
+              STATUS=$(curl -sS -o /dev/null -w '%{http_code}' -c "$COOKIE" -b "$COOKIE" "$API/$PATH" || true)
+              echo "$PATH -> HTTP $STATUS"
+            done
+          done
