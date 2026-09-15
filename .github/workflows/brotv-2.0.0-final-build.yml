@@ -70,9 +70,9 @@ jobs:
           REPORT='app/build/reports/lint-results-release.txt'
           test -s "$REPORT"
           for ID in WakelockTimeout HardcodedText TextFields Autofill CutPasteId SetTextI18n ContentDescription; do
-            if grep -q "[$ID]" "$REPORT"; then
+            if grep -Fq "[$ID]" "$REPORT"; then
               echo "Blocked lint warning remains: $ID" >&2
-              grep "[$ID]" "$REPORT" >&2 || true
+              grep -F "[$ID]" "$REPORT" >&2 || true
               exit 1
             fi
           done
