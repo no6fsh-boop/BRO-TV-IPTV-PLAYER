@@ -22,15 +22,22 @@ jobs:
             SESSION=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/cushion-sessions" -H 'Content-Type: application/json' --data '{"password":null}')
             CUSHION_ID=$(printf '%s' "$SESSION" | python3 -c 'import json,sys; print(json.load(sys.stdin)["cushionId"])')
             curl -sSfL -c "$COOKIE" -b "$COOKIE" "https://firestorage.ai/ja/go/$CUSHION_ID/" -o "$RUNNER_TEMP/$SHARE.html"
-            python3 - "$RUNNER_TEMP/$SHARE.html" <<'PY'
-          import re,sys,html
-          text=html.unescape(open(sys.argv[1],encoding='utf-8',errors='ignore').read())
-          names=sorted(set(re.findall(r'[^"<>\\/]{1,160}\.(?:zip|jks|keystore|txt|apk|aab|pem)', text, re.I)))
-          print('candidate filenames:')
-          for name in names[:80]: print(' -', name.strip())
+            curl -sSf -c "$COOKIE" -b "$COOKIE" "$API/shares/$SHARE/files" -o "$RUNNER_TEMP/$SHARE-files.json"
+            python3 - "$RUNNER_TEMP/$SHARE-files.json" <<'PY'
+          import json,sys
+          data=json.load(open(sys.argv[1],encoding='utf-8'))
+          seen=set()
+          def walk(x):
+              if isinstance(x,dict):
+                  name=next((x.get(k) for k in ('fileName','file_name','name','filename','originalName') if isinstance(x.get(k),str)),None)
+                  if name and name not in seen:
+                      seen.add(name)
+                      ident=next((x.get(k) for k in ('fileId','file_id','id','publicId') if x.get(k) is not None),'')
+                      size=next((x.get(k) for k in ('size','sizeBytes','size_bytes') if x.get(k) is not None),'')
+                      print(f'FILE name={name!r} id={ident!r} size={size!r}')
+                  for v in x.values(): walk(v)
+              elif isinstance(x,list):
+                  for v in x: walk(v)
+          walk(data)
           PY
-            for ROUTE in "shares/$SHARE" "shares/$SHARE/files"; do
-              STATUS=$(curl -sS -o /dev/null -w '%{http_code}' -c "$COOKIE" -b "$COOKIE" "$API/$ROUTE" || true)
-              echo "$ROUTE -> HTTP $STATUS"
-            done
           done
