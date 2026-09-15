@@ -1,8 +1,8 @@
-name: BRO TV 2.0.0 Final Polished Release Gate
+name: BRO TV 2.0.1 TV Focus Hotfix Gate
 
 on:
   push:
-    branches: [ brotv-2.0.0-final-polish ]
+    branches: [ brotv-2.0.1-focus-fix ]
   workflow_dispatch:
 
 permissions:
@@ -12,13 +12,13 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
-      - name: Download verified final source
+      - name: Download verified 2.0.1 source
         shell: bash
         run: |
           set -euo pipefail
           API='https://api.firestorage.ai/dev/file'
-          SHARE='1cj8Jq4kxMOz'
-          FILE_ID='01a0a35bdae0779b88d145289d57b814'
+          SHARE='MS2Qf290uNsz'
+          FILE_ID='01a0a3894f3775069bde53483260b44c'
           COOKIE="$RUNNER_TEMP/firestorage.cookies"
           SESSION=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/cushion-sessions" -H 'Content-Type: application/json' --data '{"password":null}')
           CUSHION_ID=$(printf '%s' "$SESSION" | python3 -c 'import json,sys; print(json.load(sys.stdin)["cushionId"])')
@@ -26,7 +26,7 @@ jobs:
           DOWNLOAD_META=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/files/$FILE_ID/download")
           DOWNLOAD_URL=$(printf '%s' "$DOWNLOAD_META" | python3 -c 'import json,sys; print(json.load(sys.stdin)["downloadUrl"])')
           curl -sSfL "$DOWNLOAD_URL" -o "$RUNNER_TEMP/source.zip"
-          echo '26b7c8b2492af18b938376b31ffa9c6e3b1862b2cc0de870d551e59a1b800796  '"$RUNNER_TEMP/source.zip" | sha256sum -c -
+          echo 'b1ad8c97ccb4849ff2d25d389d1eaab7baeb5a08e503652ef95c7655a3595ff2  '"$RUNNER_TEMP/source.zip" | sha256sum -c -
           mkdir -p "$GITHUB_WORKSPACE/project"
           unzip -q "$RUNNER_TEMP/source.zip" -d "$GITHUB_WORKSPACE/project"
 
@@ -35,25 +35,21 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Verify commercial identity, privacy and final hardening
+      - name: Verify hotfix identity and TV focus fix
         working-directory: project
         shell: bash
         run: |
           set -euo pipefail
           grep -n 'namespace = "com.brotv.player"' app/build.gradle.kts
           grep -n 'applicationId = "com.brotv.player"' app/build.gradle.kts
-          grep -n 'versionCode = 20' app/build.gradle.kts
-          grep -n 'versionName = "2.0.0"' app/build.gradle.kts
-          ! grep -R 'com.example.iptvplayer' app/src/main app/src/test app/build.gradle.kts
+          grep -n 'versionCode = 21' app/build.gradle.kts
+          grep -n 'versionName = "2.0.1"' app/build.gradle.kts
           ! grep -R 'android.permission.RECORD_AUDIO' app/src/main/AndroidManifest.xml
           ! grep -R 'Log\.[divew](' app/src/main/java
-          grep -n 'checkpoint restores implicit byte range after live playlist window slides' app/src/test/java/com/example/iptvplayer/dvr/DvrStreamRecorderTest.kt
-          grep -n 'SecureRandom' app/src/main/java/com/example/iptvplayer/data/PairingTokenGenerator.kt
-          grep -n 'recoveryHandler' app/src/main/java/com/example/iptvplayer/ui/FullPlayerActivity.kt
-          grep -n 'XmltvTransportPolicy.isGzip' app/src/main/java/com/example/iptvplayer/data/XmltvEpgRepository.kt
-          grep -n 'WAKE_LOCK_TIMEOUT_MS' app/src/main/java/com/example/iptvplayer/dvr/DvrRecordingService.kt
-          grep -n 'WAKE_LOCK_RENEW_INTERVAL_MS' app/src/main/java/com/example/iptvplayer/dvr/DvrRecordingService.kt
-          grep -n 'android:hint="@string/search_hint_all"' app/src/main/res/layout/activity_search.xml
+          grep -n 'android:foreground="@drawable/home_card_border_selector"' app/src/main/res/layout/item_home_card.xml
+          grep -n 'android:background="@drawable/home_card_clip_bg"' app/src/main/res/layout/item_home_card.xml
+          grep -n 'android:clipChildren="false"' app/src/main/res/layout/activity_home.xml
+          grep -n 'scaleX(scale)' app/src/main/java/com/example/iptvplayer/ui/HomeActivity.kt
 
       - name: Run all unit tests
         working-directory: project
@@ -76,13 +72,12 @@ jobs:
               exit 1
             fi
           done
-          grep -Eo '[0-9]+ errors?, [0-9]+ warnings?' "$REPORT" | tail -1 || true
 
-      - name: Build commercial release candidates
+      - name: Build release APK and AAB
         working-directory: project
         run: ./gradlew --no-daemon assembleRelease bundleRelease
 
-      - name: Prepare final offline-signing package
+      - name: Prepare offline-signing package
         working-directory: project
         shell: bash
         run: |
@@ -94,21 +89,18 @@ jobs:
           test -s "$APK"
           test -s "$AAB"
           BUILD_TOOLS=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
-          test -x "$BUILD_TOOLS/zipalign"
-          test -f "$BUILD_TOOLS/lib/apksigner.jar"
-          "$BUILD_TOOLS/zipalign" -f 4 "$APK" "$OUT/BRO-TV-2.0.0-aligned-unsigned.apk"
-          "$BUILD_TOOLS/zipalign" -c 4 "$OUT/BRO-TV-2.0.0-aligned-unsigned.apk"
-          cp "$AAB" "$OUT/BRO-TV-2.0.0-unsigned.aab"
+          "$BUILD_TOOLS/zipalign" -f 4 "$APK" "$OUT/BRO-TV-2.0.1-aligned-unsigned.apk"
+          "$BUILD_TOOLS/zipalign" -c 4 "$OUT/BRO-TV-2.0.1-aligned-unsigned.apk"
+          cp "$AAB" "$OUT/BRO-TV-2.0.1-unsigned.aab"
           cp "$BUILD_TOOLS/lib/apksigner.jar" "$OUT/apksigner.jar"
-          cp "$RUNNER_TEMP/source.zip" "$OUT/BRO-TV-2.0.0-source.zip"
+          cp "$RUNNER_TEMP/source.zip" "$OUT/BRO-TV-2.0.1-source.zip"
           cp app/build/reports/lint-results-release.txt "$OUT/"
-          sha256sum "$OUT"/* | tee "$OUT/unsigned-sha256.txt"
-          unzip -t "$OUT/BRO-TV-2.0.0-aligned-unsigned.apk" >/dev/null
-          unzip -t "$OUT/BRO-TV-2.0.0-unsigned.aab" >/dev/null
-          unzip -t "$OUT/BRO-TV-2.0.0-source.zip" >/dev/null
+          sha256sum "$OUT"/* > "$OUT/unsigned-sha256.txt"
+          unzip -t "$OUT/BRO-TV-2.0.1-aligned-unsigned.apk" >/dev/null
+          unzip -t "$OUT/BRO-TV-2.0.1-unsigned.aab" >/dev/null
 
       - uses: actions/upload-artifact@v4
         with:
-          name: BRO-TV-2.0.0-FINAL-RELEASE
+          name: BRO-TV-2.0.1-FOCUS-HOTFIX
           path: final-build/
           retention-days: 7
