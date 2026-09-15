@@ -11,21 +11,21 @@ jobs:
   inspect:
     runs-on: ubuntu-24.04
     steps:
-      - name: Inspect active owner/final shares without downloading file contents
+      - name: Inspect historical BRO TV shares without downloading file contents
         shell: bash
         run: |
           set -euo pipefail
           API='https://api.firestorage.ai/dev/file'
-          for SHARE in 1cj8Jq4kxMOz 9dnWobChIg_o QZ2I-epdgoB_; do
-            echo "=== SHARE $SHARE ==="
+          SHARES='0nwLKRb0OcUi 1cj8Jq4kxMOz 9dnWobChIg_o QZ2I-epdgoB_ PgBHdX8b13h9 e_c_37ZdfBwI vremRdzTaFms CF4LG5ozmfBq JeJI0IGVtGpB b49DPpnprF3e DY6nJEYFbBcE a4re6cAqGpCq F0HcsLR-8EJT'
+          for SHARE in $SHARES; do
             COOKIE="$RUNNER_TEMP/$SHARE.cookies"
             SESSION=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/cushion-sessions" -H 'Content-Type: application/json' --data '{"password":null}')
             CUSHION_ID=$(printf '%s' "$SESSION" | python3 -c 'import json,sys; print(json.load(sys.stdin)["cushionId"])')
-            curl -sSfL -c "$COOKIE" -b "$COOKIE" "https://firestorage.ai/ja/go/$CUSHION_ID/" -o "$RUNNER_TEMP/$SHARE.html"
             curl -sSf -c "$COOKIE" -b "$COOKIE" "$API/shares/$SHARE/files" -o "$RUNNER_TEMP/$SHARE-files.json"
-            python3 - "$RUNNER_TEMP/$SHARE-files.json" <<'PY'
+            python3 - "$SHARE" "$RUNNER_TEMP/$SHARE-files.json" <<'PY'
           import json,sys
-          data=json.load(open(sys.argv[1],encoding='utf-8'))
+          share=sys.argv[1]
+          data=json.load(open(sys.argv[2],encoding='utf-8'))
           seen=set()
           def walk(x):
               if isinstance(x,dict):
@@ -34,7 +34,7 @@ jobs:
                       seen.add(name)
                       ident=next((x.get(k) for k in ('fileId','file_id','id','publicId') if x.get(k) is not None),'')
                       size=next((x.get(k) for k in ('size','sizeBytes','size_bytes') if x.get(k) is not None),'')
-                      print(f'FILE name={name!r} id={ident!r} size={size!r}')
+                      print(f'SHARE={share} FILE={name!r} ID={ident!r} SIZE={size!r}')
                   for v in x.values(): walk(v)
               elif isinstance(x,list):
                   for v in x: walk(v)
