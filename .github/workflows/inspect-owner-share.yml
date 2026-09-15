@@ -29,8 +29,8 @@ jobs:
           print('candidate filenames:')
           for name in names[:80]: print(' -', name.strip())
           PY
-            for PATH in "shares/$SHARE" "shares/$SHARE/files"; do
-              STATUS=$(curl -sS -o /dev/null -w '%{http_code}' -c "$COOKIE" -b "$COOKIE" "$API/$PATH" || true)
-              echo "$PATH -> HTTP $STATUS"
+            for ROUTE in "shares/$SHARE" "shares/$SHARE/files"; do
+              STATUS=$(curl -sS -o /dev/null -w '%{http_code}' -c "$COOKIE" -b "$COOKIE" "$API/$ROUTE" || true)
+              echo "$ROUTE -> HTTP $STATUS"
             done
           done
