@@ -1,8 +1,8 @@
-name: BRO TV 2.0.3 Live TV UX Hotfix Gate
+name: BRO TV 2.0.4 Field UX Batch Gate
 
 on:
   push:
-    branches: [ brotv-2.0.3-live-ui-hotfix ]
+    branches: [ brotv-2.0.4-field-batch ]
   workflow_dispatch:
 
 permissions:
@@ -12,13 +12,13 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
-      - name: Download verified 2.0.3 source
+      - name: Download verified 2.0.4 source
         shell: bash
         run: |
           set -euo pipefail
           API='https://api.firestorage.ai/dev/file'
-          SHARE='MvVHFYNLQ817'
-          FILE_ID='01a0a3b1b98376b695a1f52346c66707'
+          SHARE='q5bgR85-5XxO'
+          FILE_ID='01a0a3dae26c73a18fffb027ce10fdf5'
           COOKIE="$RUNNER_TEMP/firestorage.cookies"
           SESSION=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/cushion-sessions" -H 'Content-Type: application/json' --data '{"password":null}')
           CUSHION_ID=$(printf '%s' "$SESSION" | python3 -c 'import json,sys; print(json.load(sys.stdin)["cushionId"])')
@@ -26,7 +26,7 @@ jobs:
           DOWNLOAD_META=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/files/$FILE_ID/download")
           DOWNLOAD_URL=$(printf '%s' "$DOWNLOAD_META" | python3 -c 'import json,sys; print(json.load(sys.stdin)["downloadUrl"])')
           curl -sSfL "$DOWNLOAD_URL" -o "$RUNNER_TEMP/source.zip"
-          echo 'ab8b5ac4ed8a97207e2b9311ec581bc60d3001aafc786641b9281c4ec5822a90  '"$RUNNER_TEMP/source.zip" | sha256sum -c -
+          echo '15d8904bbc1d96662037aadde093b218d82470732d3b876889ed206b69a36eb1  '"$RUNNER_TEMP/source.zip" | sha256sum -c -
           mkdir -p "$GITHUB_WORKSPACE/project"
           unzip -q "$RUNNER_TEMP/source.zip" -d "$GITHUB_WORKSPACE/project"
 
@@ -35,24 +35,26 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Verify live TV UX field fixes
+      - name: Verify 2.0.4 field UX requirements
         working-directory: project
         shell: bash
         run: |
           set -euo pipefail
           grep -n 'namespace = "com.brotv.player"' app/build.gradle.kts
           grep -n 'applicationId = "com.brotv.player"' app/build.gradle.kts
-          grep -n 'versionCode = 23' app/build.gradle.kts
-          grep -n 'versionName = "2.0.3"' app/build.gradle.kts
-          grep -n 'android:id="@+id/liveControlsRow"' app/src/main/res/layout/activity_full_player.xml
-          grep -n 'android:id="@+id/progressRow"' app/src/main/res/layout/activity_full_player.xml
-          grep -n 'android:id="@+id/transportControlsRow"' app/src/main/res/layout/activity_full_player.xml
-          grep -n 'LIVE_CHROME_TIMEOUT_MS = 4_000L' app/src/main/java/com/example/iptvplayer/ui/FullPlayerActivity.kt
-          grep -n 'EXTRA_SURF_SCOPE' app/src/main/java/com/example/iptvplayer/ui/FullPlayerActivity.kt
-          grep -n 'ChannelSurfScopePolicy.accepts' app/src/main/java/com/example/iptvplayer/ui/FullPlayerActivity.kt
-          grep -n 'EXTRA_SURF_SCOPE, currentCategoryId' app/src/main/java/com/example/iptvplayer/ui/ChannelBrowseActivity.kt
-          grep -n 'folder scope never accepts channels from another folder' app/src/test/java/com/example/iptvplayer/player/ChannelSurfScopePolicyTest.kt
-          grep -n 'five seconds after first video frame never triggers black screen recovery' app/src/test/java/com/example/iptvplayer/player/LivePlaybackRecoveryPolicyTest.kt
+          grep -n 'versionCode = 24' app/build.gradle.kts
+          grep -n 'versionName = "2.0.4"' app/build.gradle.kts
+          grep -n 'EXTRA_RETURN_CHANNEL' app/src/main/java/com/example/iptvplayer/ui/FullPlayerActivity.kt
+          grep -n 'openGuide()' app/src/main/java/com/example/iptvplayer/ui/FullPlayerActivity.kt
+          grep -n 'fullPlayerLauncher' app/src/main/java/com/example/iptvplayer/ui/ChannelBrowseActivity.kt
+          grep -n 'hideChannel(hiddenChannel.id)' app/src/main/java/com/example/iptvplayer/ui/ChannelBrowseActivity.kt
+          grep -n 'liveCategoryOrder' app/src/main/java/com/example/iptvplayer/ui/ChannelReorderActivity.kt
+          grep -n 'movingPosition' app/src/main/java/com/example/iptvplayer/ui/ChannelReorderAdapter.kt
+          grep -n 'providerCategoryOrder' app/src/main/java/com/example/iptvplayer/data/XtreamClient.kt
+          grep -n 'btnContinueWatching' app/src/main/res/layout/activity_movies.xml
+          grep -n 'btnContinueWatching' app/src/main/res/layout/activity_series.xml
+          grep -n 'recyclerSeasons' app/src/main/res/layout/activity_series_detail.xml
+          grep -n 'enableTvListFocus' app/src/main/java/com/example/iptvplayer/ui/TvDialogFocus.kt
           ! grep -R 'android.permission.RECORD_AUDIO' app/src/main/AndroidManifest.xml
           ! grep -R 'Log\.[divew](' app/src/main/java
 
@@ -94,18 +96,18 @@ jobs:
           test -s "$APK"
           test -s "$AAB"
           BUILD_TOOLS=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
-          "$BUILD_TOOLS/zipalign" -f 4 "$APK" "$OUT/BRO-TV-2.0.3-aligned-unsigned.apk"
-          "$BUILD_TOOLS/zipalign" -c 4 "$OUT/BRO-TV-2.0.3-aligned-unsigned.apk"
-          cp "$AAB" "$OUT/BRO-TV-2.0.3-unsigned.aab"
+          "$BUILD_TOOLS/zipalign" -f 4 "$APK" "$OUT/BRO-TV-2.0.4-aligned-unsigned.apk"
+          "$BUILD_TOOLS/zipalign" -c 4 "$OUT/BRO-TV-2.0.4-aligned-unsigned.apk"
+          cp "$AAB" "$OUT/BRO-TV-2.0.4-unsigned.aab"
           cp "$BUILD_TOOLS/lib/apksigner.jar" "$OUT/apksigner.jar"
-          cp "$RUNNER_TEMP/source.zip" "$OUT/BRO-TV-2.0.3-source.zip"
+          cp "$RUNNER_TEMP/source.zip" "$OUT/BRO-TV-2.0.4-source.zip"
           cp app/build/reports/lint-results-release.txt "$OUT/"
           sha256sum "$OUT"/* > "$OUT/unsigned-sha256.txt"
-          unzip -t "$OUT/BRO-TV-2.0.3-aligned-unsigned.apk" >/dev/null
-          unzip -t "$OUT/BRO-TV-2.0.3-unsigned.aab" >/dev/null
+          unzip -t "$OUT/BRO-TV-2.0.4-aligned-unsigned.apk" >/dev/null
+          unzip -t "$OUT/BRO-TV-2.0.4-unsigned.aab" >/dev/null
 
       - uses: actions/upload-artifact@v4
         with:
-          name: BRO-TV-2.0.3-LIVE-UX-HOTFIX
+          name: BRO-TV-2.0.4-FIELD-UX-BATCH
           path: final-build/
           retention-days: 7
