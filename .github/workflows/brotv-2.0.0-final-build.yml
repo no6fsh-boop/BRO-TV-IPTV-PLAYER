@@ -1,8 +1,8 @@
-name: BRO TV 2.0.0 RC4 Final Commercial Gate
+name: BRO TV 2.0.0 Final Polished Release Gate
 
 on:
   push:
-    branches: [ brotv-2.0.0-rc4-final ]
+    branches: [ brotv-2.0.0-final-polish ]
   workflow_dispatch:
 
 permissions:
@@ -12,13 +12,13 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
-      - name: Download verified RC4 source
+      - name: Download verified final source
         shell: bash
         run: |
           set -euo pipefail
           API='https://api.firestorage.ai/dev/file'
-          SHARE='QZ2I-epdgoB_'
-          FILE_ID='01a0a350c31575d1b1bccd7cf9d4b9a3'
+          SHARE='1cj8Jq4kxMOz'
+          FILE_ID='01a0a35bdae0779b88d145289d57b814'
           COOKIE="$RUNNER_TEMP/firestorage.cookies"
           SESSION=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/cushion-sessions" -H 'Content-Type: application/json' --data '{"password":null}')
           CUSHION_ID=$(printf '%s' "$SESSION" | python3 -c 'import json,sys; print(json.load(sys.stdin)["cushionId"])')
@@ -26,7 +26,7 @@ jobs:
           DOWNLOAD_META=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/files/$FILE_ID/download")
           DOWNLOAD_URL=$(printf '%s' "$DOWNLOAD_META" | python3 -c 'import json,sys; print(json.load(sys.stdin)["downloadUrl"])')
           curl -sSfL "$DOWNLOAD_URL" -o "$RUNNER_TEMP/source.zip"
-          echo '25ebb46252a0a87bb7fe012cc16cd4c4ebb6794e32bb0be00b41a0057f4fa1be  '"$RUNNER_TEMP/source.zip" | sha256sum -c -
+          echo '26b7c8b2492af18b938376b31ffa9c6e3b1862b2cc0de870d551e59a1b800796  '"$RUNNER_TEMP/source.zip" | sha256sum -c -
           mkdir -p "$GITHUB_WORKSPACE/project"
           unzip -q "$RUNNER_TEMP/source.zip" -d "$GITHUB_WORKSPACE/project"
 
@@ -35,7 +35,7 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Verify final commercial source baseline
+      - name: Verify commercial identity, privacy and final hardening
         working-directory: project
         shell: bash
         run: |
@@ -51,6 +51,9 @@ jobs:
           grep -n 'SecureRandom' app/src/main/java/com/example/iptvplayer/data/PairingTokenGenerator.kt
           grep -n 'recoveryHandler' app/src/main/java/com/example/iptvplayer/ui/FullPlayerActivity.kt
           grep -n 'XmltvTransportPolicy.isGzip' app/src/main/java/com/example/iptvplayer/data/XmltvEpgRepository.kt
+          grep -n 'WAKE_LOCK_TIMEOUT_MS' app/src/main/java/com/example/iptvplayer/dvr/DvrRecordingService.kt
+          grep -n 'WAKE_LOCK_RENEW_INTERVAL_MS' app/src/main/java/com/example/iptvplayer/dvr/DvrRecordingService.kt
+          grep -n 'android:hint="@string/search_hint_all"' app/src/main/res/layout/activity_search.xml
 
       - name: Run all unit tests
         working-directory: project
@@ -60,7 +63,20 @@ jobs:
 
       - name: Android release lint gate
         working-directory: project
-        run: ./gradlew --no-daemon lintRelease
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon lintRelease
+          REPORT='app/build/reports/lint-results-release.txt'
+          test -s "$REPORT"
+          for ID in WakelockTimeout HardcodedText TextFields Autofill CutPasteId SetTextI18n ContentDescription; do
+            if grep -q "[$ID]" "$REPORT"; then
+              echo "Blocked lint warning remains: $ID" >&2
+              grep "[$ID]" "$REPORT" >&2 || true
+              exit 1
+            fi
+          done
+          grep -Eo '[0-9]+ errors?, [0-9]+ warnings?' "$REPORT" | tail -1 || true
 
       - name: Build commercial release candidates
         working-directory: project
@@ -85,7 +101,7 @@ jobs:
           cp "$AAB" "$OUT/BRO-TV-2.0.0-unsigned.aab"
           cp "$BUILD_TOOLS/lib/apksigner.jar" "$OUT/apksigner.jar"
           cp "$RUNNER_TEMP/source.zip" "$OUT/BRO-TV-2.0.0-source.zip"
-          if [ -f app/build/reports/lint-results-release.txt ]; then cp app/build/reports/lint-results-release.txt "$OUT/"; fi
+          cp app/build/reports/lint-results-release.txt "$OUT/"
           sha256sum "$OUT"/* | tee "$OUT/unsigned-sha256.txt"
           unzip -t "$OUT/BRO-TV-2.0.0-aligned-unsigned.apk" >/dev/null
           unzip -t "$OUT/BRO-TV-2.0.0-unsigned.aab" >/dev/null
@@ -93,6 +109,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: BRO-TV-2.0.0-FINAL-CANDIDATE
+          name: BRO-TV-2.0.0-FINAL-RELEASE
           path: final-build/
           retention-days: 7
