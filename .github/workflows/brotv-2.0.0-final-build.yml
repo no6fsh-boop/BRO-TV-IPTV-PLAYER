@@ -1,8 +1,8 @@
-name: BRO TV 2.0.5 Field Fix Gate
+name: BRO TV 2.0.6 Live Fallback Gate
 
 on:
   push:
-    branches: [ brotv-2.0.5-field-fix ]
+    branches: [ brotv-2.0.6-live-fallback ]
   workflow_dispatch:
 
 permissions:
@@ -12,13 +12,13 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
-      - name: Download verified 2.0.5 source
+      - name: Download verified 2.0.6 source
         shell: bash
         run: |
           set -euo pipefail
           API='https://api.firestorage.ai/dev/file'
-          SHARE='qxWHOXEto48v'
-          FILE_ID='01a0a57c1d887209b17f97201d77b81e'
+          SHARE='4ZsAWX5tY4bL'
+          FILE_ID='01a0aa5bcdaf71fba208569389db3a0e'
           COOKIE="$RUNNER_TEMP/firestorage.cookies"
           SESSION=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/cushion-sessions" -H 'Content-Type: application/json' --data '{"password":null}')
           CUSHION_ID=$(printf '%s' "$SESSION" | python3 -c 'import json,sys; print(json.load(sys.stdin)["cushionId"])')
@@ -26,7 +26,7 @@ jobs:
           DOWNLOAD_META=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/files/$FILE_ID/download")
           DOWNLOAD_URL=$(printf '%s' "$DOWNLOAD_META" | python3 -c 'import json,sys; print(json.load(sys.stdin)["downloadUrl"])')
           curl -sSfL "$DOWNLOAD_URL" -o "$RUNNER_TEMP/source.zip"
-          echo 'ccdb26ca74e58d224103281b4476fff100f686fdb957509d3b01d96edae59c97  '"$RUNNER_TEMP/source.zip" | sha256sum -c -
+          echo 'de67bb6401684f27212ff239ae9fea56582bc43e59146ae5f0c6471187f803e3  '"$RUNNER_TEMP/source.zip" | sha256sum -c -
           mkdir -p "$GITHUB_WORKSPACE/project"
           unzip -q "$RUNNER_TEMP/source.zip" -d "$GITHUB_WORKSPACE/project"
 
@@ -35,27 +35,23 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Verify 2.0.5 field fixes
+      - name: Verify 2.0.6 bounded live fallback
         working-directory: project
         shell: bash
         run: |
           set -euo pipefail
           grep -n 'namespace = "com.brotv.player"' app/build.gradle.kts
           grep -n 'applicationId = "com.brotv.player"' app/build.gradle.kts
-          grep -n 'versionCode = 25' app/build.gradle.kts
-          grep -n 'versionName = "2.0.5"' app/build.gradle.kts
-          grep -n 'LiveSourceRecoveryPolicy' app/src/main/java/com/example/iptvplayer/ui/FullPlayerActivity.kt
-          grep -n 'requireManualLiveSource' app/src/main/java/com/example/iptvplayer/ui/FullPlayerActivity.kt
-          grep -n 'class LiveSourceRecoveryPolicyTest' app/src/test/java/com/example/iptvplayer/player/LiveSourceRecoveryPolicyTest.kt
+          grep -n 'versionCode = 26' app/build.gradle.kts
+          grep -n 'versionName = "2.0.6"' app/build.gradle.kts
+          grep -n 'TRY_ONE_ALTERNATIVE' app/src/main/java/com/example/iptvplayer/player/LiveSourceRecoveryPolicy.kt
+          grep -n 'liveAutomaticAlternativeUsed' app/src/main/java/com/example/iptvplayer/ui/FullPlayerActivity.kt
+          grep -n 'tryOneLiveAlternativeOrRequireManual' app/src/main/java/com/example/iptvplayer/ui/FullPlayerActivity.kt
+          grep -n 'LIVE_SINGLE_FALLBACK_DELAY_MS' app/src/main/java/com/example/iptvplayer/ui/FullPlayerActivity.kt
+          grep -n 'permanent error skips useless retry but may use one alternative' app/src/test/java/com/example/iptvplayer/player/LiveSourceRecoveryPolicyTest.kt
+          grep -n 'جارٍ الكشف' app/src/main/res/values/strings.xml
           grep -n 'btnServerRefresh' app/src/main/res/layout/activity_home.xml
-          grep -n 'refreshCurrentServer' app/src/main/java/com/example/iptvplayer/ui/HomeActivity.kt
           grep -n 'liveEpgProgress' app/src/main/res/layout/activity_full_player.xml
-          grep -n 'txtLiveChannelNumber' app/src/main/res/layout/activity_full_player.xml
-          grep -n 'btnLiveSource' app/src/main/res/layout/activity_full_player.xml
-          grep -n 'nextFocusUpId' app/src/main/java/com/example/iptvplayer/ui/MovieAdapter.kt
-          grep -n 'nextFocusUpId' app/src/main/java/com/example/iptvplayer/ui/SeriesAdapter.kt
-          grep -n 'android:layout_height="245dp"' app/src/main/res/layout/activity_series_detail.xml
-          ! grep -n 'settings_stats_overlay' app/src/main/java/com/example/iptvplayer/ui/SettingsActivity.kt
           ! grep -R 'android.permission.RECORD_AUDIO' app/src/main/AndroidManifest.xml
           ! grep -R 'Log\.[divew](' app/src/main/java
 
@@ -97,18 +93,18 @@ jobs:
           test -s "$APK"
           test -s "$AAB"
           BUILD_TOOLS=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
-          "$BUILD_TOOLS/zipalign" -f 4 "$APK" "$OUT/BRO-TV-2.0.5-aligned-unsigned.apk"
-          "$BUILD_TOOLS/zipalign" -c 4 "$OUT/BRO-TV-2.0.5-aligned-unsigned.apk"
-          cp "$AAB" "$OUT/BRO-TV-2.0.5-unsigned.aab"
+          "$BUILD_TOOLS/zipalign" -f 4 "$APK" "$OUT/BRO-TV-2.0.6-aligned-unsigned.apk"
+          "$BUILD_TOOLS/zipalign" -c 4 "$OUT/BRO-TV-2.0.6-aligned-unsigned.apk"
+          cp "$AAB" "$OUT/BRO-TV-2.0.6-unsigned.aab"
           cp "$BUILD_TOOLS/lib/apksigner.jar" "$OUT/apksigner.jar"
-          cp "$RUNNER_TEMP/source.zip" "$OUT/BRO-TV-2.0.5-source.zip"
+          cp "$RUNNER_TEMP/source.zip" "$OUT/BRO-TV-2.0.6-source.zip"
           cp app/build/reports/lint-results-release.txt "$OUT/"
           sha256sum "$OUT"/* > "$OUT/unsigned-sha256.txt"
-          unzip -t "$OUT/BRO-TV-2.0.5-aligned-unsigned.apk" >/dev/null
-          unzip -t "$OUT/BRO-TV-2.0.5-unsigned.aab" >/dev/null
+          unzip -t "$OUT/BRO-TV-2.0.6-aligned-unsigned.apk" >/dev/null
+          unzip -t "$OUT/BRO-TV-2.0.6-unsigned.aab" >/dev/null
 
       - uses: actions/upload-artifact@v4
         with:
-          name: BRO-TV-2.0.5-FIELD-FIX
+          name: BRO-TV-2.0.6-LIVE-FALLBACK
           path: final-build/
           retention-days: 7
