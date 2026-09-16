@@ -1,0 +1,43 @@
+name: Publish BRO TV 2.0.8 APK
+
+on:
+  push:
+    branches: [ brotv-2.0.8-public-release ]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download signed APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          API='https://api.firestorage.ai/dev/file'
+          SHARE='hdTOBB5hSJRn'
+          FILE_ID='01a0aa82f55f771694c1602138935fdc'
+          COOKIE="$RUNNER_TEMP/firestorage.cookies"
+          SESSION=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/cushion-sessions" -H 'Content-Type: application/json' --data '{"password":null}')
+          CUSHION_ID=$(printf '%s' "$SESSION" | python3 -c 'import json,sys; print(json.load(sys.stdin)["cushionId"])')
+          curl -sSfL -c "$COOKIE" -b "$COOKIE" "https://firestorage.ai/ja/go/$CUSHION_ID/" -o "$RUNNER_TEMP/cushion.html"
+          DOWNLOAD_META=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/files/$FILE_ID/download")
+          DOWNLOAD_URL=$(printf '%s' "$DOWNLOAD_META" | python3 -c 'import json,sys; print(json.load(sys.stdin)["downloadUrl"])')
+          curl -sSfL "$DOWNLOAD_URL" -o BRO-TV-2.0.8.apk
+          echo 'e4b2be9584d437ae0e9bc9bfd08e3bdda48d774a8b43f040b705606eff502071  BRO-TV-2.0.8.apk' | sha256sum -c -
+          sha256sum BRO-TV-2.0.8.apk > BRO-TV-2.0.8-sha256.txt
+
+      - name: Publish permanent GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create bro-tv-2.0.8 \
+            BRO-TV-2.0.8.apk#BRO-TV-2.0.8.apk \
+            BRO-TV-2.0.8-sha256.txt#BRO-TV-2.0.8-sha256.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title 'BRO TV 2.0.8 Search Stability Fix' \
+            --notes 'Fixes TV search lag after a few characters by moving catalog matching off the UI thread with debounce and a pre-normalized index. Voice search and QR/mobile typing now execute search reliably after catalog load. Adds strong remote focus indicators, All/Live/Movies/Series scopes, direct live-channel lookup by visible number or Xtream stream code, and hides stale result rails while typing. APK SHA-256: e4b2be9584d437ae0e9bc9bfd08e3bdda48d774a8b43f040b705606eff502071.'
