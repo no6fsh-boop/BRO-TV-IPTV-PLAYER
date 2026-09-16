@@ -17,8 +17,8 @@ jobs:
         run: |
           set -euo pipefail
           API='https://api.firestorage.ai/dev/file'
-          SHARE='CkvxBWP7Wuzb'
-          FILE_ID='01a0aa76b709752ca365e3a416bff708'
+          SHARE='CUr5KR_KZYYT'
+          FILE_ID='01a0aa7ad455745fa3c64312fedaf2de'
           COOKIE="$RUNNER_TEMP/firestorage.cookies"
           SESSION=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/cushion-sessions" -H 'Content-Type: application/json' --data '{"password":null}')
           CUSHION_ID=$(printf '%s' "$SESSION" | python3 -c 'import json,sys; print(json.load(sys.stdin)["cushionId"])')
@@ -26,7 +26,7 @@ jobs:
           DOWNLOAD_META=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/files/$FILE_ID/download")
           DOWNLOAD_URL=$(printf '%s' "$DOWNLOAD_META" | python3 -c 'import json,sys; print(json.load(sys.stdin)["downloadUrl"])')
           curl -sSfL "$DOWNLOAD_URL" -o "$RUNNER_TEMP/source.zip"
-          echo 'b0424554e10da38d35d1d7ce08e931120c3164ed95dc6c78bc46e55ceea2b056  '"$RUNNER_TEMP/source.zip" | sha256sum -c -
+          echo '16bdc321f9ac23b41c61c49f195557e9f26bc9ec9888bc7aa5c0e2d23fe28fd5  '"$RUNNER_TEMP/source.zip" | sha256sum -c -
           mkdir -p "$GITHUB_WORKSPACE/project"
           unzip -q "$RUNNER_TEMP/source.zip" -d "$GITHUB_WORKSPACE/project"
 
@@ -52,6 +52,7 @@ jobs:
           grep -n 'submit: commit ? "true" : "false"' app/src/main/java/com/example/iptvplayer/data/LocalPairingServer.kt
           grep -n 'btnScopeLive' app/src/main/res/layout/activity_search.xml
           grep -n 'channelCodesIncludeDisplayNumberAndXtreamStreamId' app/src/test/java/com/example/iptvplayer/data/SearchMatcherTest.kt
+          grep -n 'val adapter = SearchResultAdapter' app/src/main/java/com/example/iptvplayer/ui/FavoritesActivity.kt
           ! grep -R 'android.permission.RECORD_AUDIO' app/src/main/AndroidManifest.xml
           ! grep -R 'Log\.[divew](' app/src/main/java
 
