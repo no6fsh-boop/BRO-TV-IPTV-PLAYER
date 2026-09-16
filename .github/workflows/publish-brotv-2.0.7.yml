@@ -1,0 +1,43 @@
+name: Publish BRO TV 2.0.7 APK
+
+on:
+  push:
+    branches: [ brotv-2.0.7-public-release ]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download signed APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          API='https://api.firestorage.ai/dev/file'
+          SHARE='lps3IdXBokmu'
+          FILE_ID='01a0aa6f761e7602a100b03b4b3828c6'
+          COOKIE="$RUNNER_TEMP/firestorage.cookies"
+          SESSION=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/cushion-sessions" -H 'Content-Type: application/json' --data '{"password":null}')
+          CUSHION_ID=$(printf '%s' "$SESSION" | python3 -c 'import json,sys; print(json.load(sys.stdin)["cushionId"])')
+          curl -sSfL -c "$COOKIE" -b "$COOKIE" "https://firestorage.ai/ja/go/$CUSHION_ID/" -o "$RUNNER_TEMP/cushion.html"
+          DOWNLOAD_META=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/files/$FILE_ID/download")
+          DOWNLOAD_URL=$(printf '%s' "$DOWNLOAD_META" | python3 -c 'import json,sys; print(json.load(sys.stdin)["downloadUrl"])')
+          curl -sSfL "$DOWNLOAD_URL" -o BRO-TV-2.0.7.apk
+          echo '5c32d3c44180115832ff5a1c3c1f8f9af0cce14ad52792afb2479355e16e0cea  BRO-TV-2.0.7.apk' | sha256sum -c -
+          sha256sum BRO-TV-2.0.7.apk > BRO-TV-2.0.7-sha256.txt
+
+      - name: Publish permanent GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create bro-tv-2.0.7 \
+            BRO-TV-2.0.7.apk#BRO-TV-2.0.7.apk \
+            BRO-TV-2.0.7-sha256.txt#BRO-TV-2.0.7-sha256.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title 'BRO TV 2.0.7 Provider Handoff Fix' \
+            --notes 'Fixes false provider connection-limit errors on single-connection Xtream accounts. BRO TV now closes preview before full playback, waits for stale active_cons to settle with bounded re-probes, and closes the failed live stream before retry/fallback. Existing bounded failover remains in place. APK SHA-256: 5c32d3c44180115832ff5a1c3c1f8f9af0cce14ad52792afb2479355e16e0cea.'
