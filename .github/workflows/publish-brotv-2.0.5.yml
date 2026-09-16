@@ -1,0 +1,48 @@
+name: Publish BRO TV 2.0.5 APK
+
+on:
+  push:
+    branches: [ brotv-2.0.5-public-release ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download signed APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          API='https://api.firestorage.ai/dev/file'
+          SHARE='CORIPZSDPFaV'
+          FILE_ID='01a0a58946927586b558f20441107700'
+          COOKIE="$RUNNER_TEMP/firestorage.cookies"
+          SESSION=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/cushion-sessions" -H 'Content-Type: application/json' --data '{"password":null}')
+          CUSHION_ID=$(printf '%s' "$SESSION" | python3 -c 'import json,sys; print(json.load(sys.stdin)["cushionId"])')
+          curl -sSfL -c "$COOKIE" -b "$COOKIE" "https://firestorage.ai/ja/go/$CUSHION_ID/" -o "$RUNNER_TEMP/cushion.html"
+          DOWNLOAD_META=$(curl -sSf -c "$COOKIE" -b "$COOKIE" -X POST "$API/shares/$SHARE/files/$FILE_ID/download")
+          DOWNLOAD_URL=$(printf '%s' "$DOWNLOAD_META" | python3 -c 'import json,sys; print(json.load(sys.stdin)["downloadUrl"])')
+          curl -sSfL "$DOWNLOAD_URL" -o "$RUNNER_TEMP/BRO-TV-2.0.5.apk"
+          echo '7b43c5f9417bc01e4cefc42a3e6df8d9d7dc040df652cd6732ead238989f63b3  '"$RUNNER_TEMP/BRO-TV-2.0.5.apk" | sha256sum -c -
+          printf '%s  %s\n' '7b43c5f9417bc01e4cefc42a3e6df8d9d7dc040df652cd6732ead238989f63b3' 'BRO-TV-2.0.5.apk' > "$RUNNER_TEMP/BRO-TV-2.0.5-sha256.txt"
+
+      - name: Publish permanent GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view bro-tv-2.0.5 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload bro-tv-2.0.5 "$RUNNER_TEMP/BRO-TV-2.0.5.apk" "$RUNNER_TEMP/BRO-TV-2.0.5-sha256.txt" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create bro-tv-2.0.5 \
+              "$RUNNER_TEMP/BRO-TV-2.0.5.apk#BRO-TV-2.0.5.apk" \
+              "$RUNNER_TEMP/BRO-TV-2.0.5-sha256.txt#BRO-TV-2.0.5-sha256.txt" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title 'BRO TV 2.0.5 Field Fix' \
+              --notes 'Field-test build with live-source recovery loop fixes, manual source selection, server reconnect action, TV focus fixes, series details scaling, and diagnostics overlay hidden by default. APK SHA-256: 7b43c5f9417bc01e4cefc42a3e6df8d9d7dc040df652cd6732ead238989f63b3.'
+          fi
