@@ -13,19 +13,13 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          curl -L --fail --retry 3 -o /tmp/dev13.download 'https://firestorage.ai/ja/f/t3Ag-0CjC8pD'
-          file /tmp/dev13.download
-          if unzip -t /tmp/dev13.download >/dev/null 2>&1; then
-            mv /tmp/dev13.download /tmp/dev13.zip
-          else
-            grep -Eo 'https?://[^" ]+' /tmp/dev13.download | grep -Ei 'firestorage.*(download|zip)' | head -1 > /tmp/url.txt || true
-            test -s /tmp/url.txt
-            curl -L --fail --retry 3 -o /tmp/dev13.zip "$(cat /tmp/url.txt)"
-            unzip -t /tmp/dev13.zip
-          fi
-          mkdir /tmp/dev13
-          unzip -q /tmp/dev13.zip -d /tmp/dev13
-          rsync -a --delete --exclude='.git' --exclude='.github' /tmp/dev13/ ./
+          python3 - <<'PY'
+import urllib.request,re,html,json
+share='https://firestorage.ai/ja/f/t3Ag-0CjC8pD'
+s=urllib.request.urlopen(share).read().decode('utf-8','ignore')
+print(s)
+PY
+exit 1
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
