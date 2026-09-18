@@ -35,8 +35,8 @@ jobs:
           PY
           curl -L --fail --retry 3 -o /tmp/dev14.zip "$(cat /tmp/url)"
           unzip -t /tmp/dev14.zip
-          rm -rf /tmp/dev13 && mkdir /tmp/dev13
-          unzip -q /tmp/dev14.zip -d /tmp/dev13
+          rm -rf /tmp/dev14 && mkdir /tmp/dev14
+          unzip -q /tmp/dev14.zip -d /tmp/dev14
           rsync -a --delete --exclude='.git' --exclude='.github' /tmp/dev14/ ./
           grep -R "applicationId" app/build.gradle* || true
           grep -R "versionName" app/build.gradle* || true
