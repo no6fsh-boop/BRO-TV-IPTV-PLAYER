@@ -83,6 +83,8 @@ jobs:
             adb shell monkey -p com.brotv.player --throttle 100 500
             adb shell dumpsys activity processes | grep -i com.brotv.player || true
             adb logcat -d '*:E' > android-tv-errors.log
+            brotv-home.png
+            brotv-after-stress.png
       - name: Upload Dev13 evidence
         if: always()
         uses: actions/upload-artifact@v4
