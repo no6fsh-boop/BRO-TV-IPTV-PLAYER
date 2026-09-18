@@ -1,0 +1,88 @@
+name: Dev13 Android TV Test
+on:
+  push:
+    branches: [ dev13-test ]
+  workflow_dispatch:
+jobs:
+  dev13:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch Dev13 source package
+        shell: bash
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 3 -o /tmp/dev13.download 'https://firestorage.ai/ja/f/t3Ag-0CjC8pD'
+          file /tmp/dev13.download
+          if unzip -t /tmp/dev13.download >/dev/null 2>&1; then
+            mv /tmp/dev13.download /tmp/dev13.zip
+          else
+            python3 - <<'PY'
+import re,html
+s=open('/tmp/dev13.download','r',errors='ignore').read()
+urls=[html.unescape(x) for x in re.findall(r'https?://[^"\x27<> ]+',s)]
+for u in urls:
+    if 'firestorage' in u and ('download' in u.lower() or '.zip' in u.lower()):
+        print(u)
+PY
+            URL=$(python3 - <<'PY'
+import re,html
+s=open('/tmp/dev13.download','r',errors='ignore').read()
+for x in re.findall(r'https?://[^"\x27<> ]+',s):
+    u=html.unescape(x)
+    if 'firestorage' in u and ('download' in u.lower() or '.zip' in u.lower()):
+        print(u); break
+PY
+)
+            test -n "$URL"
+            curl -L --fail --retry 3 -o /tmp/dev13.zip "$URL"
+            unzip -t /tmp/dev13.zip
+          fi
+          mkdir /tmp/dev13
+          unzip -q /tmp/dev13.zip -d /tmp/dev13
+          find /tmp/dev13 -maxdepth 2 -type f | head -30
+          rsync -a --delete --exclude='.git' --exclude='.github' /tmp/dev13/ ./
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.6'
+      - name: Build and unit tests
+        run: |
+          chmod +x gradlew || true
+          ./gradlew --no-daemon testDebugUnitTest assembleDebug
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+          sudo chmod 666 /dev/kvm || true
+      - name: Android TV smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: android-tv
+          arch: x86
+          profile: tv_1080p
+          ram-size: 2048M
+          heap-size: 512M
+          disable-animations: true
+          emulator-options: -no-snapshot-load -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: |
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb shell monkey -p com.example.iptvplayer -c android.intent.category.LAUNCHER 1
+            sleep 8
+            adb shell dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity' || true
+            adb logcat -d | grep -E 'FATAL EXCEPTION|ANR in|AndroidRuntime' && exit 1 || true
+      - name: Upload Dev13 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev13-test-evidence
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/reports/tests/
