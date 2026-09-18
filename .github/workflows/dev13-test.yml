@@ -44,7 +44,14 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      - name: Use runner Android SDK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
+          test -x /usr/local/lib/android/sdk/platform-tools/adb
+          /usr/local/lib/android/sdk/platform-tools/adb version
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.6'
