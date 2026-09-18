@@ -1,4 +1,4 @@
-name: Dev13 Android TV Test
+name: Dev14 Android TV Test
 on:
   push:
     branches: [ dev13-test ]
@@ -9,19 +9,19 @@ jobs:
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch real Dev13 source
+      - name: Fetch real Dev14 source
         shell: bash
         run: |
           set -euxo pipefail
           API='https://api.firestorage.ai/dev/file'
-          SHARE='t3Ag-0CjC8pD'
+          SHARE='AMstvkA2ogfb'
           curl --fail -sS "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/meta.json
           cat /tmp/meta.json
           python3 - <<'PY' > /tmp/fileid
           import json
           d=json.load(open('/tmp/meta.json'))
           files=d.get('files',[])
-          assert files, 'No files in Dev13 share'
+          assert files, 'No files in Dev14 share'
           print(files[0]['fileId'])
           PY
           FILEID="$(cat /tmp/fileid)"
@@ -33,11 +33,11 @@ jobs:
           assert d.get('downloadUrl'), 'No downloadUrl'
           print(d['downloadUrl'])
           PY
-          curl -L --fail --retry 3 -o /tmp/dev13.zip "$(cat /tmp/url)"
-          unzip -t /tmp/dev13.zip
+          curl -L --fail --retry 3 -o /tmp/dev14.zip "$(cat /tmp/url)"
+          unzip -t /tmp/dev14.zip
           rm -rf /tmp/dev13 && mkdir /tmp/dev13
-          unzip -q /tmp/dev13.zip -d /tmp/dev13
-          rsync -a --delete --exclude='.git' --exclude='.github' /tmp/dev13/ ./
+          unzip -q /tmp/dev14.zip -d /tmp/dev13
+          rsync -a --delete --exclude='.git' --exclude='.github' /tmp/dev14/ ./
           grep -R "applicationId" app/build.gradle* || true
           grep -R "versionName" app/build.gradle* || true
       - uses: actions/setup-java@v4
@@ -85,11 +85,11 @@ jobs:
             adb exec-out screencap -p > brotv-after-stress.png
             adb shell dumpsys activity processes | grep -i com.brotv.player || true
             adb logcat -d '*:E' > android-tv-errors.log
-      - name: Upload Dev13 evidence
+      - name: Upload Dev14 evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: dev13-test-evidence
+          name: dev14-test-evidence
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             app/build/reports/tests/
