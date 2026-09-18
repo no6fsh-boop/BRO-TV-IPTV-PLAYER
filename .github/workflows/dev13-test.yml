@@ -80,11 +80,11 @@ jobs:
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb shell monkey -p com.brotv.player -c android.intent.category.LAUNCHER 1
             sleep 8
+            adb exec-out screencap -p > brotv-home.png
             adb shell monkey -p com.brotv.player --throttle 100 500
+            adb exec-out screencap -p > brotv-after-stress.png
             adb shell dumpsys activity processes | grep -i com.brotv.player || true
             adb logcat -d '*:E' > android-tv-errors.log
-            brotv-home.png
-            brotv-after-stress.png
       - name: Upload Dev13 evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -94,3 +94,5 @@ jobs:
             app/build/outputs/apk/debug/app-debug.apk
             app/build/reports/tests/
             android-tv-errors.log
+            brotv-home.png
+            brotv-after-stress.png
