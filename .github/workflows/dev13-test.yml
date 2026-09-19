@@ -10,16 +10,18 @@ jobs:
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
+
       - name: Fetch real Dev15 source
         shell: bash
         run: |
           set -euxo pipefail
           API='https://api.firestorage.ai/dev/file'
-          SHARE='FmlPKz7qZ5Gi'
+          SHARE='Vztc3uRoxSCn'
           curl --fail -sS "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/meta.json
           python3 - <<'PY' > /tmp/fileid
           import json
-          d=json.load(open('/tmp/meta.json')); files=d.get('files',[])
+          d=json.load(open('/tmp/meta.json'))
+          files=d.get('files',[])
           assert files, 'No files in Dev15 share'
           print(files[0]['fileId'])
           PY
@@ -27,7 +29,8 @@ jobs:
           curl --fail -sS -X POST "$API/shares/$SHARE/files/$FILEID/download" -o /tmp/dl.json
           python3 - <<'PY' > /tmp/url
           import json
-          d=json.load(open('/tmp/dl.json')); assert d.get('downloadUrl')
+          d=json.load(open('/tmp/dl.json'))
+          assert d.get('downloadUrl'), 'No downloadUrl'
           print(d['downloadUrl'])
           PY
           curl -L --fail --retry 3 -o /tmp/dev15.zip "$(cat /tmp/url)"
@@ -36,20 +39,25 @@ jobs:
           unzip -q /tmp/dev15.zip -d /tmp/dev15
           rsync -a --delete --exclude='.git' --exclude='.github' /tmp/dev15/dev15/ ./
           grep -R "versionName" app/build.gradle* || true
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.6'
+
       - name: Unit tests and debug build
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon testDebugUnitTest assembleDebug
+
       - name: Enable KVM
         run: sudo chmod 666 /dev/kvm || true
-      - name: Android TV smoke performance and stress
+
+      - name: Android TV deterministic remote QA
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -61,17 +69,45 @@ jobs:
           disable-animations: true
           emulator-options: -no-snapshot-load -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           script: |
+            set -euxo pipefail
+            adb logcat -c
             adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb shell am force-stop com.brotv.player
             adb shell monkey -p com.brotv.player -c android.intent.category.LAUNCHER 1
-            sleep 8
+            sleep 6
+
+            adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' > focus-before.txt || true
+            grep -q 'com.brotv.player' focus-before.txt
+            adb exec-out screencap -p > brotv-login-before.png
+
+            # Verify both source tabs with the D-pad/OK path only.
+            adb shell input keyevent KEYCODE_DPAD_RIGHT
+            adb shell input keyevent KEYCODE_DPAD_CENTER
+            adb shell input keyevent KEYCODE_DPAD_LEFT
+            adb shell input keyevent KEYCODE_DPAD_CENTER
+
             adb shell dumpsys gfxinfo com.brotv.player reset || true
-            adb exec-out screencap -p > brotv-home.png
-            adb shell monkey -p com.brotv.player --throttle 100 500
+
+            # Stress focus navigation without opening the keyboard and without
+            # allowing a random event generator to leave BRO TV.
+            for i in $(seq 1 60); do
+              adb shell input keyevent KEYCODE_DPAD_RIGHT
+              adb shell input keyevent KEYCODE_DPAD_LEFT
+              adb shell input keyevent KEYCODE_DPAD_DOWN
+              adb shell input keyevent KEYCODE_DPAD_UP
+            done
+
+            adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' > focus-after.txt || true
+            grep -q 'com.brotv.player' focus-after.txt
+            adb exec-out screencap -p > brotv-login-after-nav.png
             adb shell dumpsys gfxinfo com.brotv.player > gfxinfo.txt || true
             adb shell dumpsys meminfo com.brotv.player > meminfo.txt || true
-            adb exec-out screencap -p > brotv-after-stress.png
             adb logcat -d '*:E' > android-tv-errors.log
-            ! grep -E "FATAL EXCEPTION|ANR in com\.brotv\.player" android-tv-errors.log
+
+            if grep -E 'FATAL EXCEPTION|ANR in com\.brotv\.player' android-tv-errors.log; then
+              exit 1
+            fi
+
       - name: Upload Dev15 evidence
         if: always()
         uses: actions/upload-artifact@v4
