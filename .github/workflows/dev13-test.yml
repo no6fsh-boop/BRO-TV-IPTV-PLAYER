@@ -90,12 +90,7 @@ jobs:
 
             # Stress focus navigation without opening the keyboard and without
             # allowing a random event generator to leave BRO TV.
-            for i in $(seq 1 60); do
-              adb shell input keyevent KEYCODE_DPAD_RIGHT
-              adb shell input keyevent KEYCODE_DPAD_LEFT
-              adb shell input keyevent KEYCODE_DPAD_DOWN
-              adb shell input keyevent KEYCODE_DPAD_UP
-            done
+            i=0; while [ "$i" -lt 60 ]; do adb shell input keyevent KEYCODE_DPAD_RIGHT; adb shell input keyevent KEYCODE_DPAD_LEFT; adb shell input keyevent KEYCODE_DPAD_DOWN; adb shell input keyevent KEYCODE_DPAD_UP; i=$((i+1)); done
 
             adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' > focus-after.txt || true
             grep -q 'com.brotv.player' focus-after.txt
