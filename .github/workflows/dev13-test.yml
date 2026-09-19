@@ -15,7 +15,7 @@ jobs:
         run: |
           set -euxo pipefail
           API='https://api.firestorage.ai/dev/file'
-          SHARE='hVjVYi8mvTMH'
+          SHARE='FmlPKz7qZ5Gi'
           curl --fail -sS "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/meta.json
           python3 - <<'PY' > /tmp/fileid
           import json
@@ -83,5 +83,7 @@ jobs:
             android-tv-errors.log
             gfxinfo.txt
             meminfo.txt
-            brotv-home.png
-            brotv-after-stress.png
+            brotv-login-before.png
+            brotv-login-after-nav.png
+            focus-before.txt
+            focus-after.txt
