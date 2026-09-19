@@ -15,7 +15,7 @@ jobs:
         run: |
           set -euxo pipefail
           API='https://api.firestorage.ai/dev/file'
-          SHARE='AOVsHSvKjuU2'
+          SHARE='WAkIdGqd-XlS'
           curl --fail -sS "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/meta.json
           python3 - <<'PY' > /tmp/fileid
           import json
@@ -34,7 +34,7 @@ jobs:
           unzip -t /tmp/dev15.zip
           rm -rf /tmp/dev15 && mkdir /tmp/dev15
           unzip -q /tmp/dev15.zip -d /tmp/dev15
-          rsync -a --delete --exclude='.git' --exclude='.github' /tmp/dev15/brotv_dev15_work/ ./
+          rsync -a --delete --exclude='.git' --exclude='.github' /tmp/dev15/dev15/ ./
           grep -R "versionName" app/build.gradle* || true
       - uses: actions/setup-java@v4
         with:
