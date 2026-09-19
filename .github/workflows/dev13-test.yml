@@ -99,9 +99,7 @@ jobs:
             adb shell dumpsys meminfo com.brotv.player > meminfo.txt || true
             adb logcat -d '*:E' > android-tv-errors.log
 
-            if grep -E 'FATAL EXCEPTION|ANR in com\.brotv\.player' android-tv-errors.log; then
-              exit 1
-            fi
+            ! grep -Eq 'FATAL EXCEPTION|ANR in com\.brotv\.player' android-tv-errors.log
 
       - name: Upload Dev15 evidence
         if: always()
