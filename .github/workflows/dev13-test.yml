@@ -40,6 +40,17 @@ jobs:
           rsync -a --delete --exclude='.git' --exclude='.github' /tmp/dev15/dev15/ ./
           grep -R "versionName" app/build.gradle* || true
 
+      - name: Package fetched Dev15 source snapshot
+        shell: bash
+        run: |
+          zip -qr /tmp/dev15-source-snapshot.zip . -x '.git/*' '.github/*' '.gradle/*' 'app/build/*'
+
+      - name: Upload Dev15 source snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev15-source-snapshot
+          path: /tmp/dev15-source-snapshot.zip
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
