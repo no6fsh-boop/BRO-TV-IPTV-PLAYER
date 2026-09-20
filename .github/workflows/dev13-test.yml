@@ -37,7 +37,10 @@ jobs:
           unzip -t /tmp/dev15.zip
           rm -rf /tmp/dev15 && mkdir /tmp/dev15
           unzip -q /tmp/dev15.zip -d /tmp/dev15
-          rsync -a --delete --exclude='.git' --exclude='.github' /tmp/dev15/dev15/ ./
+          SRC=/tmp/dev15/dev15
+          if [ ! -d "$SRC/app" ]; then SRC=/tmp/dev15; fi
+          test -d "$SRC/app"
+          rsync -a --delete --exclude='.git' --exclude='.github' "$SRC/" ./
           grep -R "versionName" app/build.gradle* || true
 
       - name: Package fetched Dev15 source snapshot
