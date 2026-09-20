@@ -16,7 +16,7 @@ jobs:
         run: |
           set -euxo pipefail
           API='https://api.firestorage.ai/dev/file'
-          SHARE='3BWOFwEMIv1l'
+          SHARE='yt36rKfUxzFH'
           curl --fail -sS "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/meta.json
           python3 - <<'PY' > /tmp/fileid
           import json
@@ -86,10 +86,12 @@ jobs:
             brotv-home-mock.png
             brotv-movies-mock.png
             brotv-movies-after-nav.png
+            brotv-movie-player-mock.png
             brotv-series-mock.png
             brotv-series-after-open.png
             activity-series-open.txt
             brotv-series-detail-mock.png
+            brotv-episode-player-mock.png
             brotv-settings-mock.png
             brotv-live-mock.png
             focus-login.txt
