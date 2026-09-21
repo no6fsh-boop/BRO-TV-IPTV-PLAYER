@@ -16,7 +16,7 @@ jobs:
         run: |
           set -euxo pipefail
           API='https://api.firestorage.ai/dev/file'
-          SHARE='mMei4UzCHNWH'
+          SHARE='fPu61u-So4rg'
           curl --fail -sS "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/meta.json
           python3 - <<'PY' > /tmp/fileid
           import json
@@ -63,10 +63,23 @@ jobs:
         with:
           gradle-version: '8.6'
 
-      - name: Unit tests and debug build
+      - name: Release readiness checks
+        run: |
+          chmod +x ci/release_readiness.sh
+          ./ci/release_readiness.sh
+
+      - name: Unit tests and debug/release build
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon testDebugUnitTest assembleDebug
+          ./gradlew --no-daemon testDebugUnitTest assembleDebug assembleRelease
+          test -f app/build/outputs/apk/debug/app-debug.apk
+          test -f app/build/outputs/apk/release/app-release-unsigned.apk
+          DEBUG_SIZE=$(stat -c%s app/build/outputs/apk/debug/app-debug.apk)
+          RELEASE_SIZE=$(stat -c%s app/build/outputs/apk/release/app-release-unsigned.apk)
+          echo "DEBUG_APK_BYTES=$DEBUG_SIZE"
+          echo "RELEASE_APK_BYTES=$RELEASE_SIZE"
+          test "$DEBUG_SIZE" -lt 31457280
+          test "$RELEASE_SIZE" -lt 31457280
 
       - name: Enable KVM
         run: sudo chmod 666 /dev/kvm || true
@@ -91,6 +104,7 @@ jobs:
           name: dev15-test-evidence
           path: |
             app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/app-release-unsigned.apk
             app/build/reports/tests/
             android-tv-errors.log
             gfxinfo.txt
