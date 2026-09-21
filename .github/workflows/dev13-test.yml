@@ -37,8 +37,8 @@ jobs:
           unzip -t /tmp/dev15.zip
           rm -rf /tmp/dev15 && mkdir /tmp/dev15
           unzip -q /tmp/dev15.zip -d /tmp/dev15
-          SRC=/tmp/dev15/dev15
-          if [ ! -d "$SRC/app" ]; then SRC=/tmp/dev15; fi
+          SRC="$(find /tmp/dev15 -maxdepth 2 -type d -name app -print -quit | xargs -r dirname)"
+          test -n "$SRC"
           test -d "$SRC/app"
           rsync -a --delete --exclude='.git' --exclude='.github' "$SRC/" ./
           grep -R "versionName" app/build.gradle* || true
