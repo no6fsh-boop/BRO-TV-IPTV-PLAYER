@@ -16,7 +16,7 @@ jobs:
         run: |
           set -euxo pipefail
           API='https://api.firestorage.ai/dev/file'
-          SHARE='kusffS6Djdzu'
+          SHARE='ZcFLFUoOcFnV'
           curl --fail -sS "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/meta.json
           python3 - <<'PY' > /tmp/fileid
           import json
@@ -71,7 +71,7 @@ jobs:
       - name: Unit tests and debug/release build
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon testDebugUnitTest assembleDebug assembleRelease
+          ./gradlew --no-daemon testDebugUnitTest lintTvRc assembleDebug assembleTvRc assembleRelease assembleRelease
           test -f app/build/outputs/apk/debug/app-debug.apk
           test -f app/build/outputs/apk/release/app-release-unsigned.apk
           DEBUG_SIZE=$(stat -c%s app/build/outputs/apk/debug/app-debug.apk)
@@ -95,7 +95,7 @@ jobs:
           heap-size: 512M
           disable-animations: true
           emulator-options: -no-snapshot-load -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
-          script: bash ci/android_tv_qa.sh
+          script: BROTV_QA_APK=app/build/outputs/apk/tvRc/app-tvRc.apk bash ci/android_tv_qa.sh
 
       - name: Upload Dev15 evidence
         if: always()
@@ -104,6 +104,10 @@ jobs:
           name: dev15-test-evidence
           path: |
             app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/tvRc/app-tvRc.apk
+            app/build/outputs/apk/release/app-release-unsigned.apk
+            app/build/outputs/mapping/tvRc/mapping.txt
+            app/build/reports/lint-results-tvRc.html
             app/build/outputs/apk/release/app-release-unsigned.apk
             app/build/reports/tests/
             android-tv-errors.log
