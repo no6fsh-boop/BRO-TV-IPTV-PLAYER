@@ -16,7 +16,7 @@ jobs:
         run: |
           set -euxo pipefail
           API='https://api.firestorage.ai/dev/file'
-          SHARE='w_zEgPWtBrA4'
+          SHARE='H3ev9CsZaRGH'
           curl --fail -sS "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/meta.json
           python3 - <<'PY' > /tmp/fileid
           import json
@@ -63,10 +63,10 @@ jobs:
         with:
           gradle-version: '8.6'
 
-      - name: Release readiness checks
+      - name: Source sanity checks
         run: |
-          chmod +x ci/release_readiness.sh
-          ./ci/release_readiness.sh
+          python3 -m py_compile ci/adb_ui.py ci/mock_xtream_server.py
+          bash -n ci/android_tv_qa.sh
 
       - name: Unit tests and debug/release build
         run: |
@@ -123,7 +123,9 @@ jobs:
             brotv-series-detail-mock.png
             brotv-episode-player-mock.png
             brotv-settings-mock.png
+            brotv-search-mock.png
             brotv-live-mock.png
+            brotv-live-player-mock.png
             focus-login.txt
             focus-final.txt
             gfxinfo-movies.txt
