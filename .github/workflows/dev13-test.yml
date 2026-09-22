@@ -16,7 +16,7 @@ jobs:
         run: |
           set -euxo pipefail
           API='https://api.firestorage.ai/dev/file'
-          SHARE='5S9MQTq0vpmf'
+          SHARE='JGpZJJIPvM4h'
           curl --fail -sS "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/meta.json
           python3 - <<'PY' > /tmp/fileid
           import json
