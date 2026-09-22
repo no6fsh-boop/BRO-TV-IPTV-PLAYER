@@ -11,12 +11,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch Dev15 v12 source
+      - name: Fetch Dev15 v9 source
         shell: bash
         run: |
           set -euxo pipefail
           API='https://api.firestorage.ai/dev/file'
-          SHARE='2Eg5I19yngnb'
+          SHARE='VpZ74eSWRojE'
           curl --fail -sS "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/meta.json
           python3 - <<'PY' > /tmp/fileid
           import json
@@ -50,7 +50,7 @@ jobs:
         with:
           gradle-version: '8.6'
 
-      - name: Build only changed debug APK
+      - name: Build only the Live focus fix
         run: |
           chmod +x gradlew
           python3 -m py_compile ci/adb_ui.py ci/mock_xtream_server.py
@@ -81,19 +81,13 @@ jobs:
           name: dev15-live-tail-evidence
           path: |
             app/build/outputs/apk/debug/app-debug.apk
-            qa-live-issues.txt
             brotv-live-tail-list.png
-            brotv-live-tail-player-hidden.png
             brotv-live-tail-player.png
-            brotv-live-tail-source-dialog.png
             brotv-live-tail-return.png
-            brotv-live-tail-guide.png
-            live-tail-initial-focus.txt
             live-tail-after-source.txt
             live-tail-after-back1.txt
             live-tail-after-back2.txt
             live-tail-after-guide-close.txt
-            live-tail-source-ui.xml
             meminfo-live-tail.txt
             focus-live-tail.txt
             android-tv-errors-live-tail.log
