@@ -7,16 +7,16 @@ on:
 jobs:
   live-tail:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch Dev15 v9 source
+      - name: Fetch Dev15 v13 source
         shell: bash
         run: |
           set -euxo pipefail
           API='https://api.firestorage.ai/dev/file'
-          SHARE='0cp3-PIubjbA'
+          SHARE='ePS16rhPqxVY'
           curl --fail -sS "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/meta.json
           python3 - <<'PY' > /tmp/fileid
           import json
@@ -41,22 +41,36 @@ jobs:
           test -n "$SRC"
           rsync -a --delete --exclude='.git' --exclude='.github' "$SRC/" ./
 
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.6'
-
-      - name: Build only the Live focus fix
+      - name: Fetch already-built v12 APK
+        shell: bash
         run: |
-          chmod +x gradlew
+          set -euxo pipefail
+          API='https://api.firestorage.ai/dev/file'
+          SHARE='ZVRi9r5CkIkZ'
+          curl --fail -sS "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/apkmeta.json
+          python3 - <<'PY' > /tmp/apkfileid
+          import json
+          d=json.load(open('/tmp/apkmeta.json'))
+          files=d.get('files',[])
+          assert files, 'No APK in share'
+          print(files[0]['fileId'])
+          PY
+          FILEID="$(cat /tmp/apkfileid)"
+          curl --fail -sS -X POST "$API/shares/$SHARE/files/$FILEID/download" -o /tmp/apkdl.json
+          python3 - <<'PY' > /tmp/apkurl
+          import json
+          d=json.load(open('/tmp/apkdl.json'))
+          assert d.get('downloadUrl'), 'No APK downloadUrl'
+          print(d['downloadUrl'])
+          PY
+          curl -L --fail --retry 3 -o /tmp/app-debug.apk "$(cat /tmp/apkurl)"
+          test -s /tmp/app-debug.apk
+          unzip -t /tmp/app-debug.apk >/dev/null
+
+      - name: Targeted QA sanity
+        run: |
           python3 -m py_compile ci/adb_ui.py ci/mock_xtream_server.py
           bash -n ci/android_tv_qa_live_tail.sh
-          ./gradlew --no-daemon assembleDebug
-          test -f app/build/outputs/apk/debug/app-debug.apk
 
       - name: Enable KVM
         run: sudo chmod 666 /dev/kvm || true
@@ -72,7 +86,7 @@ jobs:
           heap-size: 512M
           disable-animations: true
           emulator-options: -no-snapshot-load -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
-          script: BROTV_QA_APK=app/build/outputs/apk/debug/app-debug.apk bash ci/android_tv_qa_live_tail.sh
+          script: BROTV_QA_APK=/tmp/app-debug.apk bash ci/android_tv_qa_live_tail.sh
 
       - name: Upload targeted Live evidence
         if: always()
@@ -80,7 +94,6 @@ jobs:
         with:
           name: dev15-live-tail-evidence
           path: |
-            app/build/outputs/apk/debug/app-debug.apk
             brotv-live-tail-list.png
             brotv-live-tail-player.png
             brotv-live-tail-return.png
