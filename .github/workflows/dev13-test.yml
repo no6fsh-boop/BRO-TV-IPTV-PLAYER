@@ -11,12 +11,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch Dev15 v16 source
+      - name: Fetch Dev15 v17 source
         shell: bash
         run: |
           set -euxo pipefail
           API='https://api.firestorage.ai/dev/file'
-          SHARE='QO62sC_wzJkM'
+          SHARE='_NZ_KWIyJuxb'
           curl --fail -sS "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/meta.json
           python3 - <<'PY' > /tmp/fileid
           import json
