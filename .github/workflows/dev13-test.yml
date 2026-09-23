@@ -69,6 +69,17 @@ jobs:
 
       - name: Targeted QA sanity
         run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('ci/android_tv_qa_live_tail.sh')
+          s=p.read_text()
+          wait='$UI wait-id btnLiveSource --timeout 15'
+          tap='$UI tap-id btnLiveSource'
+          if wait in s and tap in s:
+              s=s.replace(tap, '', 1)
+              s=s.replace(wait, wait+'\n'+tap, 1)
+          p.write_text(s)
+          PY
           python3 -m py_compile ci/adb_ui.py ci/mock_xtream_server.py
           bash -n ci/android_tv_qa_live_tail.sh
 
