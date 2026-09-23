@@ -86,7 +86,7 @@ jobs:
           heap-size: 512M
           disable-animations: true
           emulator-options: -no-snapshot-load -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
-          script: BROTV_QA_APK=/tmp/app-debug.apk bash ci/android_tv_qa_live_tail.sh
+          script: BROTV_QA_APK=app/build/outputs/apk/debug/app-debug.apk bash ci/android_tv_qa_live_tail.sh
 
       - name: Upload targeted Live evidence
         if: always()
