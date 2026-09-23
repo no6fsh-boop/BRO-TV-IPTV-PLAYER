@@ -11,12 +11,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch Dev15 v13 source
+      - name: Fetch Dev15 v14 source
         shell: bash
         run: |
           set -euxo pipefail
           API='https://api.firestorage.ai/dev/file'
-          SHARE='ePS16rhPqxVY'
+          SHARE='_alq2mARiMQB'
           curl --fail -sS "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/meta.json
           python3 - <<'PY' > /tmp/fileid
           import json
@@ -41,31 +41,6 @@ jobs:
           test -n "$SRC"
           rsync -a --delete --exclude='.git' --exclude='.github' "$SRC/" ./
 
-      - name: Fetch already-built v12 APK
-        shell: bash
-        run: |
-          set -euxo pipefail
-          API='https://api.firestorage.ai/dev/file'
-          SHARE='ZVRi9r5CkIkZ'
-          curl --fail -sS "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/apkmeta.json
-          python3 - <<'PY' > /tmp/apkfileid
-          import json
-          d=json.load(open('/tmp/apkmeta.json'))
-          files=d.get('files',[])
-          assert files, 'No APK in share'
-          print(files[0]['fileId'])
-          PY
-          FILEID="$(cat /tmp/apkfileid)"
-          curl --fail -sS -X POST "$API/shares/$SHARE/files/$FILEID/download" -o /tmp/apkdl.json
-          python3 - <<'PY' > /tmp/apkurl
-          import json
-          d=json.load(open('/tmp/apkdl.json'))
-          assert d.get('downloadUrl'), 'No APK downloadUrl'
-          print(d['downloadUrl'])
-          PY
-          curl -L --fail --retry 3 -o /tmp/app-debug.apk "$(cat /tmp/apkurl)"
-          test -s /tmp/app-debug.apk
-          unzip -t /tmp/app-debug.apk >/dev/null
 
       - name: Package fetched source snapshot
         run: zip -qr /tmp/dev15-v13-source-snapshot.zip . -x '.git/*' '.github/*' '.gradle/*' 'app/build/*'
@@ -76,41 +51,24 @@ jobs:
           name: dev15-v13-source-snapshot
           path: /tmp/dev15-v13-source-snapshot.zip
 
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.6'
+
+      - name: Build patched Debug APK only
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+          test -f app/build/outputs/apk/debug/app-debug.apk
+
       - name: Targeted QA sanity
         run: |
-          cat > ci/tap_wait.py <<'PY'
-          import re, subprocess, sys, tempfile, time, xml.etree.ElementTree as ET
-          rid=sys.argv[1]; timeout=float(sys.argv[2]) if len(sys.argv)>2 else 12
-          end=time.time()+timeout
-          while time.time()<end:
-              remote='/sdcard/brotv-tap.xml'
-              local=tempfile.NamedTemporaryFile(delete=False,suffix='.xml').name
-              try:
-                  subprocess.run(['adb','shell','uiautomator','dump',remote],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-                  subprocess.run(['adb','pull',remote,local],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-                  root=ET.parse(local).getroot()
-                  for n in root.iter('node'):
-                      if n.attrib.get('resource-id','').endswith(':id/'+rid) and n.attrib.get('bounds'):
-                          nums=list(map(int,re.findall(r'\d+',n.attrib['bounds'])))
-                          x=(nums[0]+nums[2])//2; y=(nums[1]+nums[3])//2
-                          subprocess.run(['adb','shell','input','tap',str(x),str(y)],check=True)
-                          sys.exit(0)
-              except Exception:
-                  pass
-              time.sleep(.15)
-          raise SystemExit(f'timeout waiting to tap {rid}')
-          PY
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path('ci/android_tv_qa_live_tail.sh')
-          s=p.read_text()
-          wait='$UI wait-id btnLiveSource --timeout 15'
-          tap='$UI tap-id btnLiveSource'
-          s=s.replace(wait, 'python3 ci/tap_wait.py btnLiveSource 15', 1)
-          s=s.replace(tap, '', 1)
-          p.write_text(s)
-          PY
-          python3 -m py_compile ci/adb_ui.py ci/mock_xtream_server.py ci/tap_wait.py
+          python3 -m py_compile ci/adb_ui.py ci/mock_xtream_server.py
           bash -n ci/android_tv_qa_live_tail.sh
 
       - name: Enable KVM
@@ -127,7 +85,7 @@ jobs:
           heap-size: 512M
           disable-animations: true
           emulator-options: -no-snapshot-load -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
-          script: BROTV_QA_APK=/tmp/app-debug.apk bash ci/android_tv_qa_live_tail.sh
+          script: BROTV_QA_APK=app/build/outputs/apk/debug/app-debug.apk bash ci/android_tv_qa_live_tail.sh
 
       - name: Upload targeted Live evidence
         if: always()
