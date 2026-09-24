@@ -24,8 +24,10 @@ jobs:
         run: |
           yes | sdkmanager --licenses >/dev/null
           sdkmanager "platforms;android-34" "build-tools;34.0.0"
-      - name: Unpack the provided project
+      - name: Reassemble the uploaded source archive
         run: |
+          cat build-source.zip.part-* > build-source.zip
+          unzip -tq build-source.zip
           unzip -q build-source.zip -d "$RUNNER_TEMP/project"
           test -f "$RUNNER_TEMP/project/dev15/gradlew"
       - name: Build the existing debug variant
