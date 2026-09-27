@@ -1,4 +1,4 @@
-name: BRO TV QA Builder
+name: BRO TV 3.1 QA Build
 
 on:
   workflow_dispatch:
@@ -8,39 +8,145 @@ on:
       - '.github/workflows/android-tv-emulator-v2.yml'
 
 jobs:
-  inspect-firestorage-parser:
+  build-and-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect Firestorage parser
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Download latest BRO TV QA source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          API='https://api.firestorage.ai/prod/file'
+          SHARE='fc50IGwEcnJw'
+          NAME='BROTV-3.1.0-QA-build-source.zip'
+          curl -fLss "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/files.json
+          FILE_ID=$(python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/files.json'))
+          target='BROTV-3.1.0-QA-build-source.zip'
+          matches=[x for x in d.get('files',[]) if x.get('fileName')==target]
+          if not matches:
+              raise SystemExit('source file not found in Firestorage share')
+          print(matches[0]['fileId'])
+          PY
+          )
+          curl -fLss -X POST "$API/shares/$SHARE/files/$FILE_ID/download" -o /tmp/download.json
+          DOWNLOAD_URL=$(python3 - <<'PY'
+          import json
+          print(json.load(open('/tmp/download.json'))['downloadUrl'])
+          PY
+          )
+          curl -fL "$DOWNLOAD_URL" -o /tmp/brotv-source.zip
+          unzip -t /tmp/brotv-source.zip
+          rm -rf /tmp/brotv-src && mkdir -p /tmp/brotv-src
+          unzip -q /tmp/brotv-source.zip -d /tmp/brotv-src
+          PROJECT_DIR=$(dirname "$(find /tmp/brotv-src -maxdepth 3 -name settings.gradle.kts -print -quit)")
+          test -n "$PROJECT_DIR"
+          test -f "$PROJECT_DIR/gradlew"
+          chmod +x "$PROJECT_DIR/gradlew" "$PROJECT_DIR/ci/"*.sh || true
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Project root: $PROJECT_DIR"
+          sha256sum /tmp/brotv-source.zip
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
+
+      - name: Unit tests
         shell: bash
         run: |
           set -euo pipefail
-          BASE='https://firestorage.ai'
-          PAGE="$BASE/ja/f/etjN4JxWE3PV"
-          curl -LfsS "$PAGE" -o /tmp/share.html
-          python3 - <<'PY' > /tmp/scripts.txt
-          import re
-          s=open('/tmp/share.html',encoding='utf-8',errors='replace').read()
-          for x in re.findall(r'<script[^>]+src=[\"\']([^\"\']+)',s,flags=re.I): print(x)
-          PY
-          : > /tmp/alljs
-          while IFS= read -r src; do
-            case "$src" in http*) url="$src";; *) url="$BASE$src";; esac
-            curl -LfsS "$url" >> /tmp/alljs || true
-            printf '\n' >> /tmp/alljs
-          done < /tmp/scripts.txt
-          python3 - <<'PY'
-          import re
-          s=open('/tmp/alljs',encoding='utf-8',errors='replace').read()
-          for needle in ['shareEndpoint','shares/${e[1]}','/objects/','/files?maxResults=1000','X-Firestorage-Share-Password','api.firestorage.ai/prod']:
-              print('\n===== NEEDLE',needle,'=====')
-              pos=0; count=0
-              while True:
-                  i=s.find(needle,pos)
-                  if i<0 or count>=8: break
-                  print(s[max(0,i-1800):min(len(s),i+2600)])
-                  print('\n---')
-                  pos=i+len(needle); count+=1
-          PY
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon testDebugUnitTest
+
+      - name: Lint debug
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon lintDebug
+
+      - name: Build debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon assembleDebug
+          test -s app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Validate APK structure and signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          APK='app/build/outputs/apk/debug/app-debug.apk'
+          unzip -t "$APK"
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort -V | tail -1)
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
+          "$AAPT" dump badging "$APK" | tee /tmp/apk-badging.txt
+          grep -q "package: name='com.brotv.player.debug'" /tmp/apk-badging.txt
+          bash ci/check_native_16k.sh "$APK"
+          sha256sum "$APK" | tee /tmp/apk-sha256.txt
+
+      - name: Detect available Android TV image
+        id: tvimage
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager --list > /tmp/sdk-list.txt
+          API_LEVEL=$(grep -oE 'system-images;android-[0-9]+;android-tv;x86_64' /tmp/sdk-list.txt \
+            | sed -E 's/system-images;android-([0-9]+);android-tv;x86_64/\1/' \
+            | sort -nr | head -n1)
+          if [ -z "$API_LEVEL" ]; then
+            echo 'No Android TV x86_64 system image available' >&2
+            exit 1
+          fi
+          echo "api=$API_LEVEL" >> "$GITHUB_OUTPUT"
+          echo "Selected Android TV API $API_LEVEL"
+
+      - name: Android TV emulator QA
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ steps.tvimage.outputs.api }}
+          target: android-tv
+          arch: x86_64
+          profile: tv_1080p
+          ram-size: 2048M
+          heap-size: 512M
+          emulator-boot-timeout: 900
+          disable-animations: true
+          emulator-options: -no-snapshot-load -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: cd "$PROJECT_DIR" && bash ci/android_tv_qa.sh
+
+      - name: Copy QA evidence
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/qa-output"
+          if [ -n "${PROJECT_DIR:-}" ] && [ -d "$PROJECT_DIR" ]; then
+            cp -f "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" "$GITHUB_WORKSPACE/qa-output/BROTV-3.1.0-QA.apk" 2>/dev/null || true
+            cp -f "$PROJECT_DIR"/*.png "$GITHUB_WORKSPACE/qa-output/" 2>/dev/null || true
+            cp -f "$PROJECT_DIR"/*.txt "$GITHUB_WORKSPACE/qa-output/" 2>/dev/null || true
+            cp -f "$PROJECT_DIR"/*.log "$GITHUB_WORKSPACE/qa-output/" 2>/dev/null || true
+          fi
+          cp -f /tmp/apk-badging.txt /tmp/apk-sha256.txt "$GITHUB_WORKSPACE/qa-output/" 2>/dev/null || true
+
+      - name: Upload APK and QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BROTV-3.1.0-QA-APK
+          path: qa-output/
+          if-no-files-found: error
