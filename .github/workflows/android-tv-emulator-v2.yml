@@ -33,7 +33,7 @@ jobs:
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
-          adb version
+          "$ANDROID_HOME/platform-tools/adb" version
 
       - name: Download latest BRO TV QA source
         shell: bash
