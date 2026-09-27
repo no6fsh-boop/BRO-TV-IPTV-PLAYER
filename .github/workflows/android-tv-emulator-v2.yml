@@ -8,36 +8,44 @@ on:
       - '.github/workflows/android-tv-emulator-v2.yml'
 
 jobs:
-  inspect-firestorage:
+  inspect-firestorage-js:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect source share
+      - name: Inspect Firestorage client API
         shell: bash
         run: |
           set -euxo pipefail
-          URL='https://firestorage.ai/ja/f/etjN4JxWE3PV'
-          curl -LfsS -D /tmp/headers.txt "$URL" -o /tmp/share.html
-          echo '=== HEADERS ==='
-          cat /tmp/headers.txt
-          echo '=== TYPE/SIZE ==='
-          file /tmp/share.html
-          wc -c /tmp/share.html
-          echo '=== LINKS AND CONTEXT ==='
+          BASE='https://firestorage.ai'
+          PAGE="$BASE/ja/f/etjN4JxWE3PV"
+          curl -LfsS "$PAGE" -o /tmp/share.html
+          python3 - <<'PY' > /tmp/scripts.txt
+          import re
+          s=open('/tmp/share.html',encoding='utf-8',errors='replace').read()
+          for x in re.findall(r'<script[^>]+src=[\"\']([^\"\']+)',s,flags=re.I): print(x)
+          PY
+          : > /tmp/alljs
+          while IFS= read -r src; do
+            case "$src" in
+              http*) url="$src" ;;
+              *) url="$BASE$src" ;;
+            esac
+            echo "FETCH $url"
+            curl -LfsS "$url" >> /tmp/alljs || true
+            printf '\n' >> /tmp/alljs
+          done < /tmp/scripts.txt
+          echo '=== JS SIZE ==='
+          wc -c /tmp/alljs
+          echo '=== API/FETCH CONTEXT ==='
           python3 - <<'PY'
-          import re, html
-          s=open('/tmp/share.html','r',encoding='utf-8',errors='replace').read()
-          vals=[]
-          vals += re.findall(r'https?://[^\"\'<> ]+', s)
-          vals += re.findall(r'(?:href|src)=[\"\']([^\"\']+)', s)
-          for x in sorted(set(vals)):
-              if any(k in x.lower() for k in ('download','zip','file','api','storage','assets','js')):
-                  print(x)
-          print('=== CONTEXT ===')
-          for m in re.finditer(r'(?i)(download|zip|file_id|public_id|BROTV|etjN4JxWE3PV|api/|/api)', s):
-              a=max(0,m.start()-240); b=min(len(s),m.end()+500)
-              print(html.unescape(s[a:b]).replace('\n',' '))
-          print('=== SCRIPT SRCS ===')
-          for x in re.findall(r'<script[^>]+src=[\"\']([^\"\']+)', s, flags=re.I): print(x)
+          import re
+          s=open('/tmp/alljs',encoding='utf-8',errors='replace').read()
+          pats=[r'https?://[^\"\'` ]+',r'/api/[^\"\'` )]+',r'fetch\([^)]{0,400}\)',r'axios[^;]{0,500}',r'presign[^;]{0,500}',r'download[^;]{0,500}',r'public_id[^;]{0,500}',r'share[^;]{0,500}']
+          seen=set()
+          for p in pats:
+            for m in re.finditer(p,s,flags=re.I):
+              t=m.group(0)
+              if t not in seen:
+                seen.add(t); print(t[:1200])
           PY
