@@ -35,13 +35,13 @@ jobs:
         run: |
           set -euxo pipefail
           API='https://api.firestorage.ai/prod/file'
-          SHARE='imHN68SDkI76'
-          NAME='BROTV-3.2.0-feature-pack-source.zip'
+          SHARE='q5uYcAiqMjwh'
+          NAME='BROTV-3.2.0-feature-pack-source-v2.zip'
           curl -fLss "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/files.json
           FILE_ID=$(python3 - <<'PY'
           import json
           d=json.load(open('/tmp/files.json'))
-          target='BROTV-3.2.0-feature-pack-source.zip'
+          target='BROTV-3.2.0-feature-pack-source-v2.zip'
           matches=[x for x in d.get('files',[]) if x.get('fileName')==target]
           if not matches:
               raise SystemExit('source file not found in Firestorage share')
