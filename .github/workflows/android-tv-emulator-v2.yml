@@ -37,7 +37,7 @@ jobs:
           API='https://api.firestorage.ai/prod/file'
           SHARE='3ckPDEqCy6buIc2i'
           FILE_ID='01a0e90b255376e6962e5db458ba2b05'
-          CURL_RETRY=(--retry 8 --retry-all-errors --retry-delay 3 --connect-timeout 20 --max-time 180)
+          CURL_RETRY=(-4 --http1.1 -A 'Mozilla/5.0 BROTV-CI/3.2' --retry 8 --retry-all-errors --retry-delay 3 --connect-timeout 20 --max-time 180)
           curl -fLss "${CURL_RETRY[@]}" -X POST "$API/shares/$SHARE/files/$FILE_ID/download" -o /tmp/download.json
           DOWNLOAD_URL=$(python3 - <<'PY'
           import json
