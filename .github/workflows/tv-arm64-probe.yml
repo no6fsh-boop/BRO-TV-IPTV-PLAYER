@@ -1,0 +1,20 @@
+name: TV ARM64 Image Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/tv-arm64-probe.yml'
+
+jobs:
+  probe:
+    runs-on: macos-15
+    timeout-minutes: 5
+    steps:
+      - name: List Android TV ARM64 images
+        shell: bash
+        run: |
+          set -euxo pipefail
+          echo "host=$(uname -m)"
+          sdkmanager --list | grep -E 'system-images;android-[0-9]+;(android-tv|google-tv);arm64-v8a' | sort -u | tail -30
