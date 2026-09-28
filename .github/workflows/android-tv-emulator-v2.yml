@@ -1,4 +1,4 @@
-name: BRO TV 3.2.0 Lint Retest
+name: BRO TV 3.2.0 Final QA Build
 
 on:
   workflow_dispatch:
@@ -8,9 +8,9 @@ on:
       - '.github/workflows/android-tv-emulator-v2.yml'
 
 jobs:
-  lint-retest:
+  build-validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -47,7 +47,7 @@ jobs:
           unzip -q /tmp/brotv-source.zip -d /tmp/brotv-src
           PROJECT_DIR=$(dirname "$(find /tmp/brotv-src -maxdepth 3 -name settings.gradle.kts -print -quit)")
           test -f "$PROJECT_DIR/gradlew"
-          chmod +x "$PROJECT_DIR/gradlew"
+          chmod +x "$PROJECT_DIR/gradlew" "$PROJECT_DIR/ci/"*.sh || true
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           sha256sum /tmp/brotv-source.zip
 
@@ -64,17 +64,49 @@ jobs:
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
 
-      - name: Lint debug only
+      - name: Build debug APK
         shell: bash
         run: |
           set -euo pipefail
           cd "$PROJECT_DIR"
-          ./gradlew --no-daemon lintDebug
+          ./gradlew --no-daemon assembleDebug
+          test -s app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Upload lint report
+      - name: Validate APK and Android TV metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          APK='app/build/outputs/apk/debug/app-debug.apk'
+          unzip -t "$APK" >/dev/null
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort -V | tail -1)
+          test -x "$APKSIGNER"
+          test -x "$AAPT"
+          "$APKSIGNER" verify --verbose --print-certs "$APK" | tee /tmp/apk-signing.txt
+          "$AAPT" dump badging "$APK" | tee /tmp/apk-badging.txt
+          grep -q "package: name='com.brotv.player.debug'" /tmp/apk-badging.txt
+          grep -q "versionName='3.2.0-dev19'" /tmp/apk-badging.txt
+          grep -q "leanback-launchable-activity: name='com.brotv.player.MainActivity'" /tmp/apk-badging.txt
+          grep -q "uses-feature-not-required: name='android.software.leanback'" /tmp/apk-badging.txt
+          grep -q "uses-feature-not-required: name='android.hardware.touchscreen'" /tmp/apk-badging.txt
+          bash ci/check_native_16k.sh "$APK" | tee /tmp/native-16k.txt
+          sha256sum "$APK" | tee /tmp/apk-sha256.txt
+
+      - name: Collect APK and QA evidence
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/qa-output"
+          if [ -n "${PROJECT_DIR:-}" ] && [ -d "$PROJECT_DIR" ]; then
+            cp -f "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" "$GITHUB_WORKSPACE/qa-output/BROTV-3.2.0-Competitive-QA.apk" 2>/dev/null || true
+          fi
+          cp -f /tmp/apk-badging.txt /tmp/apk-sha256.txt /tmp/apk-signing.txt /tmp/native-16k.txt "$GITHUB_WORKSPACE/qa-output/" 2>/dev/null || true
+
+      - name: Upload APK and QA evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: BROTV-3.2.0-v4-Lint
-          path: ${{ env.PROJECT_DIR }}/app/build/reports/lint-results-debug.html
-          if-no-files-found: warn
+          name: BROTV-3.2.0-Competitive-QA-APK
+          path: qa-output/
+          if-no-files-found: error
