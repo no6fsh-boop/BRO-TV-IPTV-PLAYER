@@ -103,7 +103,9 @@ jobs:
           "$AAPT" dump badging "$APK" | tee /tmp/apk-badging.txt
           grep -q "package: name='com.brotv.player.debug'" /tmp/apk-badging.txt
           grep -q "versionName='3.1.1-dev18'" /tmp/apk-badging.txt
-          grep -q "uses-feature: name='android.software.leanback'" /tmp/apk-badging.txt
+          grep -q "leanback-launchable-activity: name='com.brotv.player.MainActivity'" /tmp/apk-badging.txt
+          grep -q "uses-feature-not-required: name='android.software.leanback'" /tmp/apk-badging.txt
+          grep -q "uses-feature-not-required: name='android.hardware.touchscreen'" /tmp/apk-badging.txt
           bash ci/check_native_16k.sh "$APK"
           shasum -a 256 "$APK" | tee /tmp/apk-sha256.txt
 
