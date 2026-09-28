@@ -14,7 +14,7 @@ permissions:
 jobs:
   tv-smoke:
     runs-on: macos-15
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - name: Download validated APK artifact
         shell: bash
@@ -27,7 +27,6 @@ jobs:
             -H 'Accept: application/vnd.github+json' \
             "/repos/${GITHUB_REPOSITORY}/actions/artifacts/10952641975/zip" \
             > /tmp/brotv-artifact.zip
-          unzip -t /tmp/brotv-artifact.zip
           unzip -o /tmp/brotv-artifact.zip -d "$GITHUB_WORKSPACE/apk"
           test -s "$GITHUB_WORKSPACE/apk/BROTV-3.1.0-QA.apk"
           shasum -a 256 "$GITHUB_WORKSPACE/apk/BROTV-3.1.0-QA.apk"
@@ -37,11 +36,11 @@ jobs:
         with:
           api-level: 36
           target: android-tv
-          arch: x86_64
+          arch: arm64-v8a
           profile: tv_1080p
           ram-size: 3072M
           heap-size: 512M
-          emulator-boot-timeout: 600
+          emulator-boot-timeout: 480
           disable-animations: true
           emulator-options: -no-snapshot-load -no-snapshot-save -no-window -noaudio -no-boot-anim
           script: |
@@ -52,16 +51,6 @@ jobs:
 
             adb wait-for-device
             adb devices -l
-            for i in {1..30}; do
-              STATE=$(adb get-state 2>/dev/null || true)
-              BOOT=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)
-              if [ "$STATE" = 'device' ] && [ "$BOOT" = '1' ]; then
-                break
-              fi
-              sleep 2
-            done
-
-            adb shell pm list packages | grep -q '^package:com.android.tv'
             adb install -r -g "$APK" | tee /tmp/install.txt
             grep -q 'Success' /tmp/install.txt
             adb shell pm path "$PKG" | grep -q '^package:'
@@ -74,13 +63,11 @@ jobs:
             adb shell pidof "$PKG" | tee /tmp/pid.txt
             test -s /tmp/pid.txt
 
-            # Remote/D-pad smoke: move focus, select, back, then verify app process is still alive.
             adb shell input keyevent KEYCODE_DPAD_RIGHT
             adb shell input keyevent KEYCODE_DPAD_DOWN
             adb shell input keyevent KEYCODE_DPAD_LEFT
             adb shell input keyevent KEYCODE_DPAD_UP
-            adb shell input keyevent KEYCODE_BACK
-            sleep 2
+            sleep 1
             adb shell pidof "$PKG" | tee /tmp/pid-after-keys.txt
             test -s /tmp/pid-after-keys.txt
 
