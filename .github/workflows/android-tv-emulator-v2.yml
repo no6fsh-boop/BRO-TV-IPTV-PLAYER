@@ -1,4 +1,4 @@
-name: BRO TV 3.2.0 Competitive QA Build
+name: BRO TV 3.2.0 Lint Diagnostic
 
 on:
   workflow_dispatch:
@@ -8,9 +8,9 @@ on:
       - '.github/workflows/android-tv-emulator-v2.yml'
 
 jobs:
-  build-and-test:
+  lint-diagnostic:
     runs-on: macos-15
-    timeout-minutes: 40
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -30,13 +30,12 @@ jobs:
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
 
-      - name: Download BRO TV 3.2.0 source
+      - name: Download BRO TV 3.2.0 source v2
         shell: bash
         run: |
           set -euxo pipefail
           API='https://api.firestorage.ai/prod/file'
           SHARE='Tb_0xLTC20h7'
-          NAME='BROTV-3.2.0-competitive-pack-source-v2.zip'
           curl -fLss "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/files.json
           FILE_ID=$(python3 - <<'PY'
           import json
@@ -44,7 +43,7 @@ jobs:
           target='BROTV-3.2.0-competitive-pack-source-v2.zip'
           matches=[x for x in d.get('files',[]) if x.get('fileName')==target]
           if not matches:
-              raise SystemExit('source file not found in Firestorage share')
+              raise SystemExit('source file not found')
           print(matches[0]['fileId'])
           PY
           )
@@ -55,68 +54,26 @@ jobs:
           PY
           )
           curl -fL "$DOWNLOAD_URL" -o /tmp/brotv-source.zip
-          unzip -t /tmp/brotv-source.zip
           rm -rf /tmp/brotv-src && mkdir -p /tmp/brotv-src
           unzip -q /tmp/brotv-source.zip -d /tmp/brotv-src
           PROJECT_DIR=$(dirname "$(find /tmp/brotv-src -maxdepth 3 -name settings.gradle.kts -print -quit)")
-          test -n "$PROJECT_DIR"
           test -f "$PROJECT_DIR/gradlew"
-          chmod +x "$PROJECT_DIR/gradlew" "$PROJECT_DIR/ci/"*.sh || true
+          chmod +x "$PROJECT_DIR/gradlew"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          shasum -a 256 /tmp/brotv-source.zip
 
-      - name: Unit tests
+      - name: Lint debug - print every blocker
         shell: bash
         run: |
-          set -euo pipefail
-          cd "$PROJECT_DIR"
-          ./gradlew --no-daemon testDebugUnitTest
-
-      - name: Lint debug
-        shell: bash
-        run: |
-          set -euo pipefail
+          set +e
           cd "$PROJECT_DIR"
           ./gradlew --no-daemon lintDebug
-
-      - name: Build debug APK
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$PROJECT_DIR"
-          ./gradlew --no-daemon assembleDebug
-          test -s app/build/outputs/apk/debug/app-debug.apk
-
-      - name: Validate APK
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$PROJECT_DIR"
-          APK='app/build/outputs/apk/debug/app-debug.apk'
-          unzip -t "$APK" >/dev/null
-          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
-          AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort -V | tail -1)
-          "$APKSIGNER" verify --verbose --print-certs "$APK"
-          "$AAPT" dump badging "$APK" | tee /tmp/apk-badging.txt
-          grep -q "package: name='com.brotv.player.debug'" /tmp/apk-badging.txt
-          grep -q "versionName='3.2.0-dev19'" /tmp/apk-badging.txt
-          grep -q "leanback-launchable-activity: name='com.brotv.player.MainActivity'" /tmp/apk-badging.txt
-          grep -q "uses-feature-not-required: name='android.hardware.touchscreen'" /tmp/apk-badging.txt
-          bash ci/check_native_16k.sh "$APK"
-          shasum -a 256 "$APK" | tee /tmp/apk-sha256.txt
-
-      - name: Collect APK
-        if: always()
-        shell: bash
-        run: |
-          mkdir -p "$GITHUB_WORKSPACE/qa-output"
-          cp -f "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" "$GITHUB_WORKSPACE/qa-output/BROTV-3.2.0-Competitive-QA.apk" 2>/dev/null || true
-          cp -f /tmp/apk-badging.txt /tmp/apk-sha256.txt "$GITHUB_WORKSPACE/qa-output/" 2>/dev/null || true
-
-      - name: Upload APK and QA evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: BROTV-3.2.0-Competitive-QA-APK
-          path: qa-output/
-          if-no-files-found: error
+          CODE=$?
+          REPORT='app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt'
+          echo '===== ALL LINT ERRORS ====='
+          if [ -f "$REPORT" ]; then
+            grep -n -B2 -A4 'Error:' "$REPORT" || cat "$REPORT"
+          else
+            echo 'Lint text report not found'
+          fi
+          echo '===== END LINT ERRORS ====='
+          exit $CODE
