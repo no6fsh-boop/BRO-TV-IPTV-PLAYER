@@ -32,6 +32,40 @@ jobs:
           test -f "$PROJECT_DIR/gradlew"
           chmod +x "$PROJECT_DIR/gradlew" "$PROJECT_DIR/ci/"*.sh || true
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+      - name: Apply M3U artwork URL compatibility fix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          p = Path(os.environ['PROJECT_DIR']) / 'app/src/main/java/com/brotv/player/data/NetworkUrlPolicy.kt'
+          s = p.read_text()
+          old = '''    /** Accept both provider-supported HTTP and HTTPS media URLs without rewriting the scheme. */
+              fun secureMediaUrlOrNull(raw: String?): String? {
+                  val value = raw.orEmpty().trim()
+                  return runCatching {
+                      val uri = URI(value)
+                      val supported = uri.scheme.equals("http", true) || uri.scheme.equals("https", true)
+                      value.takeIf { supported && !uri.rawAuthority.isNullOrBlank() }
+                  }.getOrNull()
+              }
+          '''
+          new = '''    /** Accept HTTP/HTTPS media URLs as entered, including common unescaped spaces in artwork paths. */
+              fun secureMediaUrlOrNull(raw: String?): String? {
+                  val value = raw.orEmpty().trim()
+                  val prefix = when {
+                      value.startsWith("https://", ignoreCase = true) -> "https://"
+                      value.startsWith("http://", ignoreCase = true) -> "http://"
+                      else -> return null
+                  }
+                  val authority = value.substring(prefix.length).substringBefore('/').trim()
+                  return value.takeIf { authority.isNotBlank() }
+              }
+          '''
+          if old not in s:
+              raise SystemExit('NetworkUrlPolicy patch target not found')
+          p.write_text(s.replace(old, new))
+          PY
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
