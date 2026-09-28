@@ -14,70 +14,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve BRO TV 3.2 source from public share
+      - name: Download BRO TV 3.2.0 feature source
         shell: bash
         run: |
           set -euxo pipefail
-          SHARE_PAGE='https://firestorage.ai/ja/f/uzThi0m16yzu'
-          curl -4 --http1.1 -fL --retry 5 --retry-all-errors --connect-timeout 20 --max-time 120 \
-            -A 'Mozilla/5.0 BROTV-CI/3.2' "$SHARE_PAGE" -o /tmp/share.html
-          test -s /tmp/share.html
-          echo "Share page bytes: $(wc -c < /tmp/share.html)"
-
-          python3 - <<'PY'
-          import html, json, os, re, shutil, subprocess, sys, urllib.parse, urllib.request
-          text=html.unescape(open('/tmp/share.html','r',encoding='utf-8',errors='ignore').read())
+          API='https://api.firestorage.ai/dev/file'
+          SHARE='uzThi0m16yzu'
+          TARGET='BROTV-3.2.0-feature-pack-source-v3.zip'
+          CURL=(-4 --http1.1 -A 'Mozilla/5.0 BROTV-CI/3.2' --retry 6 --retry-all-errors --retry-delay 2 --connect-timeout 20 --max-time 180)
+          curl -fLss "${CURL[@]}" "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/files.json
+          FILE_ID=$(python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/files.json'))
           target='BROTV-3.2.0-feature-pack-source-v3.zip'
-          urls=[]
-          for raw in re.findall(r'https?://[^\s"\'<>]+', text):
-              u=raw.replace('\\u0026','&').replace('\\/','/')
-              if any(k in u.lower() for k in ('wasabi','download','firestorage','source-v3')): urls.append(u)
-          candidates=[]
-          for m in re.finditer(r'"(?:downloadUrl|download_url)"\s*:\s*"([^"]+)"', text):
-              candidates.append(m.group(1).replace('\\u0026','&').replace('\\/','/'))
-          for u in urls:
-              if 'wasabisys' in u or target in urllib.parse.unquote(u): candidates.append(u)
-          candidates.append('https://firestorage.ai/api/prod/file/shares/3ckPDEqCy6buIc2i/files/01a0e90b255376e6962e5db458ba2b05/download')
-
-          def try_download(url):
-              print('TRY',url[:350])
-              req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 BROTV-CI/3.2','Accept':'*/*'})
-              try:
-                  with urllib.request.urlopen(req,timeout=60) as r:
-                      data=r.read(); ctype=r.headers.get('content-type','')
-                  if data[:1] in (b'{',b'['):
-                      try:
-                          obj=json.loads(data.decode()); signed=obj.get('downloadUrl') or obj.get('download_url')
-                          if signed: return try_download(signed)
-                      except Exception: pass
-                  if data.startswith(b'PK\x03\x04') and len(data)>100000:
-                      open('/tmp/brotv-source.zip','wb').write(data); print('SOURCE_OK',len(data)); return True
-                  print('NOT_ZIP',len(data),ctype)
-              except Exception as e: print('CANDIDATE_FAIL',type(e).__name__,str(e)[:240])
-              return False
-
-          for u in dict.fromkeys(candidates):
-              if try_download(u): sys.exit(0)
-
-          chrome=shutil.which('google-chrome') or shutil.which('chromium') or shutil.which('chromium-browser')
-          if chrome:
-              dom=subprocess.check_output([chrome,'--headless','--disable-gpu','--no-sandbox','--virtual-time-budget=10000','--dump-dom','https://firestorage.ai/ja/f/uzThi0m16yzu'],stderr=subprocess.STDOUT,timeout=50).decode('utf-8','ignore')
-              print('RENDERED_BYTES',len(dom),'TARGET_PRESENT',target in dom)
-              idx=dom.find(target)
-              if idx>=0:
-                  snippet=dom[max(0,idx-4500):min(len(dom),idx+6500)]
-                  print('=== TARGET_SNIPPET_BEGIN ===')
-                  print(snippet)
-                  print('=== TARGET_SNIPPET_END ===')
-                  # Gather href/data/action values in the local markup around the file row.
-                  for attr,val in re.findall(r'(href|src|action|data-[\w-]+)=["\']([^"\']+)',snippet,re.I):
-                      print('ATTR',attr,val[:800])
-              for m in re.finditer(r'https?://[^\s"\'<>]+',html.unescape(dom)):
-                  u=m.group(0).replace('\\u0026','&').replace('\\/','/')
-                  if ('wasabisys' in u or target in urllib.parse.unquote(u)) and try_download(u): sys.exit(0)
-          raise SystemExit('Could not resolve source ZIP from public share')
+          files=d.get('files', d if isinstance(d,list) else [])
+          matches=[x for x in files if x.get('fileName')==target or x.get('name')==target]
+          if not matches:
+              print(json.dumps(d)[:2000])
+              raise SystemExit('target source not found')
+          print(matches[0].get('fileId') or matches[0].get('id'))
           PY
-
+          )
+          test -n "$FILE_ID"
+          echo "Resolved source file: $FILE_ID"
+          curl -fLss "${CURL[@]}" -X POST "$API/shares/$SHARE/files/$FILE_ID/download" -o /tmp/download.json
+          DOWNLOAD_URL=$(python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/download.json'))
+          print(d.get('downloadUrl') or d.get('download_url') or '')
+          PY
+          )
+          test -n "$DOWNLOAD_URL"
+          curl -fL "${CURL[@]}" "$DOWNLOAD_URL" -o /tmp/brotv-source.zip
           unzip -t /tmp/brotv-source.zip
           rm -rf /tmp/brotv-src && mkdir -p /tmp/brotv-src
           unzip -q /tmp/brotv-source.zip -d /tmp/brotv-src
@@ -86,6 +54,7 @@ jobs:
           test -f "$PROJECT_DIR/gradlew"
           chmod +x "$PROJECT_DIR/gradlew" "$PROJECT_DIR/ci/"*.sh || true
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Project root: $PROJECT_DIR"
           sha256sum /tmp/brotv-source.zip
 
       - uses: actions/setup-java@v5
@@ -107,18 +76,21 @@ jobs:
       - name: Unit tests
         shell: bash
         run: |
+          set -euo pipefail
           cd "$PROJECT_DIR"
           ./gradlew --no-daemon testDebugUnitTest
 
       - name: Lint debug
         shell: bash
         run: |
+          set -euo pipefail
           cd "$PROJECT_DIR"
           ./gradlew --no-daemon lintDebug
 
       - name: Build debug APK
         shell: bash
         run: |
+          set -euo pipefail
           cd "$PROJECT_DIR"
           ./gradlew --no-daemon assembleDebug
           test -s app/build/outputs/apk/debug/app-debug.apk
@@ -132,6 +104,8 @@ jobs:
           unzip -t "$APK" >/dev/null
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
           AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort -V | tail -1)
+          test -x "$APKSIGNER"
+          test -x "$AAPT"
           "$APKSIGNER" verify --verbose --print-certs "$APK"
           "$AAPT" dump badging "$APK" | tee /tmp/apk-badging.txt
           grep -q "package: name='com.brotv.player.debug'" /tmp/apk-badging.txt
