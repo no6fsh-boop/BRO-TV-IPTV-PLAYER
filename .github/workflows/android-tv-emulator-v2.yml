@@ -36,25 +36,15 @@ jobs:
           set -euxo pipefail
           API='https://api.firestorage.ai/prod/file'
           SHARE='3ckPDEqCy6buIc2i'
-          NAME='BROTV-3.2.0-feature-pack-source-v3.zip'
-          curl -fLss "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/files.json
-          FILE_ID=$(python3 - <<'PY'
-          import json
-          d=json.load(open('/tmp/files.json'))
-          target='BROTV-3.2.0-feature-pack-source-v3.zip'
-          matches=[x for x in d.get('files',[]) if x.get('fileName')==target]
-          if not matches:
-              raise SystemExit('source file not found in Firestorage share')
-          print(matches[0]['fileId'])
-          PY
-          )
-          curl -fLss -X POST "$API/shares/$SHARE/files/$FILE_ID/download" -o /tmp/download.json
+          FILE_ID='01a0e90b255376e6962e5db458ba2b05'
+          CURL_RETRY=(--retry 8 --retry-all-errors --retry-delay 3 --connect-timeout 20 --max-time 180)
+          curl -fLss "${CURL_RETRY[@]}" -X POST "$API/shares/$SHARE/files/$FILE_ID/download" -o /tmp/download.json
           DOWNLOAD_URL=$(python3 - <<'PY'
           import json
           print(json.load(open('/tmp/download.json'))['downloadUrl'])
           PY
           )
-          curl -fL "$DOWNLOAD_URL" -o /tmp/brotv-source.zip
+          curl -fL "${CURL_RETRY[@]}" "$DOWNLOAD_URL" -o /tmp/brotv-source.zip
           unzip -t /tmp/brotv-source.zip
           rm -rf /tmp/brotv-src && mkdir -p /tmp/brotv-src
           unzip -q /tmp/brotv-source.zip -d /tmp/brotv-src
