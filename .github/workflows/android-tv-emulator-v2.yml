@@ -1,45 +1,28 @@
-name: BRO TV 3.2.4 Full Category QA Build
-
+name: BRO TV 3.2.5 Navigation Live Stability QA Build
 on:
   workflow_dispatch:
   push:
     branches: [ main ]
-    paths:
-      - '.github/workflows/android-tv-emulator-v2.yml'
-
+    paths: ['.github/workflows/android-tv-emulator-v2.yml']
 jobs:
   build-validate:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
-
-      - name: Download BRO TV 3.2.4 full category source v2
+      - name: Download BRO TV 3.2.5 source
         shell: bash
         run: |
           set -euxo pipefail
           API='https://api.firestorage.ai/dev/file'
-          SHARE='-7ABfRrvMu9k'
-          TARGET='BROTV-3.2.4-full-category-titles-source-v2.zip'
-          CURL=(-4 --http1.1 -A 'Mozilla/5.0 BROTV-CI/3.2.4' --retry 8 --retry-all-errors --retry-delay 2 --connect-timeout 20 --max-time 180)
+          SHARE='jQl7TllzWftr'
+          TARGET='BROTV-3.2.5-navigation-live-stability-source.zip'
+          CURL=(-4 --http1.1 -A 'BROTV-CI/3.2.5' --retry 8 --retry-all-errors --retry-delay 2 --connect-timeout 20 --max-time 180)
           curl -fLss "${CURL[@]}" "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/files.json
-          FILE_ID=$(python3 - <<'PY'
-          import json
-          d=json.load(open('/tmp/files.json'))
-          target='BROTV-3.2.4-full-category-titles-source-v2.zip'
-          files=d.get('files', d if isinstance(d,list) else [])
-          matches=[x for x in files if x.get('fileName')==target or x.get('name')==target]
-          if not matches: raise SystemExit('target source not found')
-          print(matches[0].get('fileId') or matches[0].get('id'))
-          PY
-          )
+          FILE_ID=$(python3 -c "import json;d=json.load(open('/tmp/files.json'));fs=d.get('files',d if isinstance(d,list) else []);m=[x for x in fs if x.get('fileName')=='$TARGET' or x.get('name')=='$TARGET'];print((m[0].get('fileId') or m[0].get('id')) if m else '')")
+          test -n "$FILE_ID"
           curl -fLss "${CURL[@]}" -X POST "$API/shares/$SHARE/files/$FILE_ID/download" -o /tmp/download.json
-          DOWNLOAD_URL=$(python3 - <<'PY'
-          import json
-          d=json.load(open('/tmp/download.json'))
-          print(d.get('downloadUrl') or d.get('download_url') or '')
-          PY
-          )
+          DOWNLOAD_URL=$(python3 -c "import json;d=json.load(open('/tmp/download.json'));print(d.get('downloadUrl') or d.get('download_url') or '')")
           test -n "$DOWNLOAD_URL"
           curl -fL "${CURL[@]}" "$DOWNLOAD_URL" -o /tmp/brotv-source.zip
           unzip -t /tmp/brotv-source.zip >/dev/null
@@ -49,47 +32,26 @@ jobs:
           test -f "$PROJECT_DIR/gradlew"
           chmod +x "$PROJECT_DIR/gradlew" "$PROJECT_DIR/ci/"*.sh || true
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          sha256sum /tmp/brotv-source.zip
-
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-
       - name: Prepare Android SDK
-        shell: bash
         run: |
-          set -euxo pipefail
           SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort | tail -1)
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
-
       - name: Unit tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$PROJECT_DIR"
-          ./gradlew --no-daemon testDebugUnitTest
-
+        run: cd "$PROJECT_DIR" && ./gradlew --no-daemon testDebugUnitTest
       - name: Lint debug
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$PROJECT_DIR"
-          ./gradlew --no-daemon lintDebug
-
+        run: cd "$PROJECT_DIR" && ./gradlew --no-daemon lintDebug
       - name: Build debug APK
-        shell: bash
         run: |
-          set -euo pipefail
           cd "$PROJECT_DIR"
           ./gradlew --no-daemon assembleDebug
           test -s app/build/outputs/apk/debug/app-debug.apk
-
       - name: Validate APK and Android TV metadata
-        shell: bash
         run: |
-          set -euo pipefail
           cd "$PROJECT_DIR"
           APK='app/build/outputs/apk/debug/app-debug.apk'
           unzip -t "$APK" >/dev/null
@@ -98,28 +60,22 @@ jobs:
           "$APKSIGNER" verify --verbose --print-certs "$APK" | tee /tmp/apk-signing.txt
           "$AAPT" dump badging "$APK" | tee /tmp/apk-badging.txt
           grep -q "package: name='com.brotv.player.debug'" /tmp/apk-badging.txt
-          grep -q "versionName='3.2.4-dev23'" /tmp/apk-badging.txt
+          grep -q "versionName='3.2.5-dev24'" /tmp/apk-badging.txt
           grep -q "leanback-launchable-activity: name='com.brotv.player.MainActivity'" /tmp/apk-badging.txt
           grep -q "uses-feature-not-required: name='android.software.leanback'" /tmp/apk-badging.txt
           grep -q "uses-feature-not-required: name='android.hardware.touchscreen'" /tmp/apk-badging.txt
           bash ci/check_native_16k.sh "$APK" | tee /tmp/native-16k.txt
           sha256sum "$APK" | tee /tmp/apk-sha256.txt
-
-      - name: Collect APK and QA evidence
+      - name: Collect QA artifact
         if: always()
-        shell: bash
         run: |
-          mkdir -p "$GITHUB_WORKSPACE/qa-output"
-          if [ -n "${PROJECT_DIR:-}" ] && [ -d "$PROJECT_DIR" ]; then
-            cp -f "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" "$GITHUB_WORKSPACE/qa-output/BROTV-3.2.4-Full-Category-QA.apk" 2>/dev/null || true
-            cp -f "$PROJECT_DIR/app/build/reports/lint-results-debug.html" "$GITHUB_WORKSPACE/qa-output/" 2>/dev/null || true
-          fi
-          cp -f /tmp/apk-badging.txt /tmp/apk-sha256.txt /tmp/apk-signing.txt /tmp/native-16k.txt "$GITHUB_WORKSPACE/qa-output/" 2>/dev/null || true
-
-      - name: Upload APK and QA evidence
+          mkdir -p qa-output
+          cp -f "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" qa-output/BROTV-3.2.5-Navigation-Live-Stability-QA.apk 2>/dev/null || true
+          cp -f "$PROJECT_DIR/app/build/reports/lint-results-debug.html" qa-output/ 2>/dev/null || true
+          cp -f /tmp/apk-badging.txt /tmp/apk-sha256.txt /tmp/apk-signing.txt /tmp/native-16k.txt qa-output/ 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
-          name: BROTV-3.2.4-Full-Category-QA-APK
+          name: BROTV-3.2.5-Navigation-Live-Stability-QA-APK
           path: qa-output/
           if-no-files-found: error
