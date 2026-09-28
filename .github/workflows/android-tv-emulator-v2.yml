@@ -33,13 +33,13 @@ jobs:
         run: |
           set -euxo pipefail
           API='https://api.firestorage.ai/prod/file'
-          SHARE='kKb3B_t8uy3g'
-          NAME='BROTV-3.1.0-QA-build-source-min23-v3.zip'
+          SHARE='aZNcotQbP97k'
+          NAME='BROTV-3.1.0-QA-build-source-min23-v4.zip'
           curl -fLss "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/files.json
           FILE_ID=$(python3 - <<'PY'
           import json
           d=json.load(open('/tmp/files.json'))
-          target='BROTV-3.1.0-QA-build-source-min23-v3.zip'
+          target='BROTV-3.1.0-QA-build-source-min23-v4.zip'
           print(next(x['fileId'] for x in d['files'] if x['fileName']==target))
           PY
           )
