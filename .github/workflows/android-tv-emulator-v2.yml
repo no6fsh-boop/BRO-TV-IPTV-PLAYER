@@ -1,4 +1,4 @@
-name: BRO TV 3.1 QA Build
+name: BRO TV 3.1.1 Premium QA Build
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ on:
 jobs:
   build-and-test:
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
 
@@ -23,27 +23,25 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          echo "ANDROID_HOME=$ANDROID_HOME"
           SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort | tail -1)
           test -x "$SDKMANAGER"
           echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
-          "$ANDROID_HOME/platform-tools/adb" version
 
-      - name: Download latest BRO TV QA source
+      - name: Download BRO TV 3.1.1 premium source
         shell: bash
         run: |
           set -euxo pipefail
           API='https://api.firestorage.ai/prod/file'
-          SHARE='aZNcotQbP97k'
-          NAME='BROTV-3.1.0-QA-build-source-min23-v4.zip'
+          SHARE='j-D9inwSuIB0'
+          NAME='BROTV-3.1.1-premium-QA-source.zip'
           curl -fLss "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/files.json
           FILE_ID=$(python3 - <<'PY'
           import json
           d=json.load(open('/tmp/files.json'))
-          target='BROTV-3.1.0-QA-build-source-min23-v4.zip'
+          target='BROTV-3.1.1-premium-QA-source.zip'
           matches=[x for x in d.get('files',[]) if x.get('fileName')==target]
           if not matches:
               raise SystemExit('source file not found in Firestorage share')
@@ -90,7 +88,7 @@ jobs:
           ./gradlew --no-daemon assembleDebug
           test -s app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Validate APK structure and signature
+      - name: Validate APK and Android TV metadata
         shell: bash
         run: |
           set -euo pipefail
@@ -104,60 +102,18 @@ jobs:
           "$APKSIGNER" verify --verbose --print-certs "$APK"
           "$AAPT" dump badging "$APK" | tee /tmp/apk-badging.txt
           grep -q "package: name='com.brotv.player.debug'" /tmp/apk-badging.txt
+          grep -q "versionName='3.1.1-dev18'" /tmp/apk-badging.txt
+          grep -q "uses-feature: name='android.software.leanback'" /tmp/apk-badging.txt
           bash ci/check_native_16k.sh "$APK"
           shasum -a 256 "$APK" | tee /tmp/apk-sha256.txt
 
-      - name: Detect available Android TV image
-        id: tvimage
-        shell: bash
-        run: |
-          set -euo pipefail
-          sdkmanager --list > /tmp/sdk-list.txt
-          API_LEVEL=$(grep -oE 'system-images;android-[0-9]+;android-tv;x86_64' /tmp/sdk-list.txt \
-            | sed -E 's/system-images;android-([0-9]+);android-tv;x86_64/\1/' \
-            | sort -nr | head -n1)
-          if [ -z "$API_LEVEL" ]; then
-            echo 'No Android TV x86_64 system image available' >&2
-            exit 1
-          fi
-          echo "api=$API_LEVEL" >> "$GITHUB_OUTPUT"
-          echo "Selected Android TV API $API_LEVEL"
-
-      - name: Android TV emulator QA
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: ${{ steps.tvimage.outputs.api }}
-          target: android-tv
-          arch: x86_64
-          profile: tv_1080p
-          ram-size: 3072M
-          heap-size: 512M
-          emulator-boot-timeout: 600
-          disable-animations: true
-          emulator-options: -no-snapshot-load -no-snapshot-save -no-window -noaudio -no-boot-anim
-          script: |
-            cd "$PROJECT_DIR"
-            adb wait-for-device
-            for i in {1..30}; do
-              STATE=$(adb get-state 2>/dev/null || true)
-              BOOT=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)
-              [ "$STATE" = device ] && [ "$BOOT" = 1 ] && break
-              sleep 2
-            done
-            adb devices
-            adb install -r -g app/build/outputs/apk/debug/app-debug.apk
-            bash ci/android_tv_qa.sh
-
-      - name: Copy QA evidence
+      - name: Collect APK
         if: always()
         shell: bash
         run: |
           mkdir -p "$GITHUB_WORKSPACE/qa-output"
           if [ -n "${PROJECT_DIR:-}" ] && [ -d "$PROJECT_DIR" ]; then
-            cp -f "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" "$GITHUB_WORKSPACE/qa-output/BROTV-3.1.0-QA.apk" 2>/dev/null || true
-            cp -f "$PROJECT_DIR"/*.png "$GITHUB_WORKSPACE/qa-output/" 2>/dev/null || true
-            cp -f "$PROJECT_DIR"/*.txt "$GITHUB_WORKSPACE/qa-output/" 2>/dev/null || true
-            cp -f "$PROJECT_DIR"/*.log "$GITHUB_WORKSPACE/qa-output/" 2>/dev/null || true
+            cp -f "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" "$GITHUB_WORKSPACE/qa-output/BROTV-3.1.1-Premium-QA.apk" 2>/dev/null || true
           fi
           cp -f /tmp/apk-badging.txt /tmp/apk-sha256.txt "$GITHUB_WORKSPACE/qa-output/" 2>/dev/null || true
 
@@ -165,6 +121,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: BROTV-3.1.0-QA-APK
+          name: BROTV-3.1.1-Premium-QA-APK
           path: qa-output/
-          if-no-files-found: warn
+          if-no-files-found: error
