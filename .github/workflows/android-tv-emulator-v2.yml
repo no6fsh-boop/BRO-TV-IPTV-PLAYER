@@ -1,4 +1,4 @@
-name: BRO TV 3.2.0 Final QA Build
+name: BRO TV 3.2 Source Export
 
 on:
   workflow_dispatch:
@@ -8,29 +8,28 @@ on:
       - '.github/workflows/android-tv-emulator-v2.yml'
 
 jobs:
-  build-validate:
+  export-source:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-
-      - name: Download BRO TV 3.2.0 v4 source
+      - name: Fetch source
         shell: bash
         run: |
           set -euxo pipefail
           API='https://api.firestorage.ai/dev/file'
           SHARE='c-O9dqMRvv6q'
           TARGET='BROTV-3.2.0-feature-pack-source-v4.zip'
-          CURL=(-4 --http1.1 -A 'Mozilla/5.0 BROTV-CI/3.2' --retry 6 --retry-all-errors --retry-delay 2 --connect-timeout 20 --max-time 180)
+          CURL=(-4 --http1.1 -A 'BROTV-CI/3.2' --retry 8 --retry-all-errors --retry-delay 2 --connect-timeout 20 --max-time 180)
           curl -fLss "${CURL[@]}" "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/files.json
           FILE_ID=$(python3 - <<'PY'
           import json
           d=json.load(open('/tmp/files.json'))
-          target='BROTV-3.2.0-feature-pack-source-v4.zip'
-          files=d.get('files', d if isinstance(d,list) else [])
-          matches=[x for x in files if x.get('fileName')==target or x.get('name')==target]
-          if not matches: raise SystemExit('target source not found')
-          print(matches[0].get('fileId') or matches[0].get('id'))
+          t='BROTV-3.2.0-feature-pack-source-v4.zip'
+          files=d.get('files', [])
+          m=[x for x in files if x.get('fileName')==t or x.get('name')==t]
+          if not m: raise SystemExit('not found')
+          print(m[0].get('fileId') or m[0].get('id'))
           PY
           )
           curl -fLss "${CURL[@]}" -X POST "$API/shares/$SHARE/files/$FILE_ID/download" -o /tmp/download.json
@@ -43,70 +42,9 @@ jobs:
           test -n "$DOWNLOAD_URL"
           curl -fL "${CURL[@]}" "$DOWNLOAD_URL" -o /tmp/brotv-source.zip
           unzip -t /tmp/brotv-source.zip >/dev/null
-          rm -rf /tmp/brotv-src && mkdir -p /tmp/brotv-src
-          unzip -q /tmp/brotv-source.zip -d /tmp/brotv-src
-          PROJECT_DIR=$(dirname "$(find /tmp/brotv-src -maxdepth 3 -name settings.gradle.kts -print -quit)")
-          test -f "$PROJECT_DIR/gradlew"
-          chmod +x "$PROJECT_DIR/gradlew" "$PROJECT_DIR/ci/"*.sh || true
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          sha256sum /tmp/brotv-source.zip
-
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Prepare Android SDK
-        shell: bash
-        run: |
-          set -euxo pipefail
-          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort | tail -1)
-          yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
-
-      - name: Build debug APK
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$PROJECT_DIR"
-          ./gradlew --no-daemon assembleDebug
-          test -s app/build/outputs/apk/debug/app-debug.apk
-
-      - name: Validate APK and Android TV metadata
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$PROJECT_DIR"
-          APK='app/build/outputs/apk/debug/app-debug.apk'
-          unzip -t "$APK" >/dev/null
-          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
-          AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort -V | tail -1)
-          test -x "$APKSIGNER"
-          test -x "$AAPT"
-          "$APKSIGNER" verify --verbose --print-certs "$APK" | tee /tmp/apk-signing.txt
-          "$AAPT" dump badging "$APK" | tee /tmp/apk-badging.txt
-          grep -q "package: name='com.brotv.player.debug'" /tmp/apk-badging.txt
-          grep -q "versionName='3.2.0-dev19'" /tmp/apk-badging.txt
-          grep -q "leanback-launchable-activity: name='com.brotv.player.MainActivity'" /tmp/apk-badging.txt
-          grep -q "uses-feature-not-required: name='android.software.leanback'" /tmp/apk-badging.txt
-          grep -q "uses-feature-not-required: name='android.hardware.touchscreen'" /tmp/apk-badging.txt
-          bash ci/check_native_16k.sh "$APK" | tee /tmp/native-16k.txt
-          sha256sum "$APK" | tee /tmp/apk-sha256.txt
-
-      - name: Collect APK and QA evidence
-        if: always()
-        shell: bash
-        run: |
-          mkdir -p "$GITHUB_WORKSPACE/qa-output"
-          if [ -n "${PROJECT_DIR:-}" ] && [ -d "$PROJECT_DIR" ]; then
-            cp -f "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" "$GITHUB_WORKSPACE/qa-output/BROTV-3.2.0-Competitive-QA.apk" 2>/dev/null || true
-          fi
-          cp -f /tmp/apk-badging.txt /tmp/apk-sha256.txt /tmp/apk-signing.txt /tmp/native-16k.txt "$GITHUB_WORKSPACE/qa-output/" 2>/dev/null || true
-
-      - name: Upload APK and QA evidence
-        if: always()
+      - name: Upload source
         uses: actions/upload-artifact@v4
         with:
-          name: BROTV-3.2.0-Competitive-QA-APK
-          path: qa-output/
+          name: BROTV-3.2.0-source-v4-bridge
+          path: /tmp/brotv-source.zip
           if-no-files-found: error
