@@ -1,0 +1,103 @@
+name: BRO TV 3.1 Quick TV Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/brotv31-quick-tv-smoke.yml'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  tv-smoke:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Download validated APK artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/apk"
+          gh api \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/${GITHUB_REPOSITORY}/actions/artifacts/10952641975/zip" \
+            > /tmp/brotv-artifact.zip
+          unzip -t /tmp/brotv-artifact.zip
+          unzip -o /tmp/brotv-artifact.zip -d "$GITHUB_WORKSPACE/apk"
+          test -s "$GITHUB_WORKSPACE/apk/BROTV-3.1.0-QA.apk"
+          shasum -a 256 "$GITHUB_WORKSPACE/apk/BROTV-3.1.0-QA.apk"
+
+      - name: Android TV install and launch smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: android-tv
+          arch: x86_64
+          profile: tv_1080p
+          ram-size: 3072M
+          heap-size: 512M
+          emulator-boot-timeout: 600
+          disable-animations: true
+          emulator-options: -no-snapshot-load -no-snapshot-save -no-window -noaudio -no-boot-anim
+          script: |
+            set -euxo pipefail
+            APK="$GITHUB_WORKSPACE/apk/BROTV-3.1.0-QA.apk"
+            PKG='com.brotv.player.debug'
+            ACT='com.brotv.player.MainActivity'
+
+            adb wait-for-device
+            adb devices -l
+            for i in {1..30}; do
+              STATE=$(adb get-state 2>/dev/null || true)
+              BOOT=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)
+              if [ "$STATE" = 'device' ] && [ "$BOOT" = '1' ]; then
+                break
+              fi
+              sleep 2
+            done
+
+            adb shell pm list packages | grep -q '^package:com.android.tv'
+            adb install -r -g "$APK" | tee /tmp/install.txt
+            grep -q 'Success' /tmp/install.txt
+            adb shell pm path "$PKG" | grep -q '^package:'
+
+            adb logcat -c
+            adb shell am force-stop "$PKG"
+            adb shell am start -W -n "$PKG/$ACT" | tee /tmp/start.txt
+            grep -Eq 'Status: ok|ThisTime:' /tmp/start.txt
+            sleep 5
+            adb shell pidof "$PKG" | tee /tmp/pid.txt
+            test -s /tmp/pid.txt
+
+            # Remote/D-pad smoke: move focus, select, back, then verify app process is still alive.
+            adb shell input keyevent KEYCODE_DPAD_RIGHT
+            adb shell input keyevent KEYCODE_DPAD_DOWN
+            adb shell input keyevent KEYCODE_DPAD_LEFT
+            adb shell input keyevent KEYCODE_DPAD_UP
+            adb shell input keyevent KEYCODE_BACK
+            sleep 2
+            adb shell pidof "$PKG" | tee /tmp/pid-after-keys.txt
+            test -s /tmp/pid-after-keys.txt
+
+            adb exec-out screencap -p > "$GITHUB_WORKSPACE/tv-smoke.png"
+            adb logcat -d > "$GITHUB_WORKSPACE/tv-smoke-logcat.txt"
+            if grep -E 'FATAL EXCEPTION|ANR in com\.brotv\.player\.debug|Process: com\.brotv\.player\.debug.*FATAL' "$GITHUB_WORKSPACE/tv-smoke-logcat.txt"; then
+              echo 'BRO TV crash/ANR detected during smoke test' >&2
+              exit 1
+            fi
+            echo 'BRO TV Android TV install/launch/D-pad smoke test PASSED'
+
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BROTV-3.1.0-TV-SMOKE-EVIDENCE
+          path: |
+            tv-smoke.png
+            tv-smoke-logcat.txt
+          if-no-files-found: warn
