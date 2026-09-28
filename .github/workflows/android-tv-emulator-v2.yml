@@ -1,4 +1,4 @@
-name: BRO TV 3.2.3 Splash Wait QA Build
+name: BRO TV 3.2.4 Full Category QA Build
 
 on:
   workflow_dispatch:
@@ -14,19 +14,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download BRO TV 3.2.3 splash wait source
+      - name: Download BRO TV 3.2.4 full category source
         shell: bash
         run: |
           set -euxo pipefail
           API='https://api.firestorage.ai/dev/file'
-          SHARE='SHRaNjBctLEB'
-          TARGET='BROTV-3.2.3-splash-wait-source.zip'
-          CURL=(-4 --http1.1 -A 'Mozilla/5.0 BROTV-CI/3.2.3' --retry 8 --retry-all-errors --retry-delay 2 --connect-timeout 20 --max-time 180)
+          SHARE='9WF5ltpE75nq'
+          TARGET='BROTV-3.2.4-full-category-titles-source.zip'
+          CURL=(-4 --http1.1 -A 'Mozilla/5.0 BROTV-CI/3.2.4' --retry 8 --retry-all-errors --retry-delay 2 --connect-timeout 20 --max-time 180)
           curl -fLss "${CURL[@]}" "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/files.json
           FILE_ID=$(python3 - <<'PY'
           import json
           d=json.load(open('/tmp/files.json'))
-          target='BROTV-3.2.3-splash-wait-source.zip'
+          target='BROTV-3.2.4-full-category-titles-source.zip'
           files=d.get('files', d if isinstance(d,list) else [])
           matches=[x for x in files if x.get('fileName')==target or x.get('name')==target]
           if not matches: raise SystemExit('target source not found')
@@ -98,7 +98,7 @@ jobs:
           "$APKSIGNER" verify --verbose --print-certs "$APK" | tee /tmp/apk-signing.txt
           "$AAPT" dump badging "$APK" | tee /tmp/apk-badging.txt
           grep -q "package: name='com.brotv.player.debug'" /tmp/apk-badging.txt
-          grep -q "versionName='3.2.3-dev22'" /tmp/apk-badging.txt
+          grep -q "versionName='3.2.4-dev23'" /tmp/apk-badging.txt
           grep -q "leanback-launchable-activity: name='com.brotv.player.MainActivity'" /tmp/apk-badging.txt
           grep -q "uses-feature-not-required: name='android.software.leanback'" /tmp/apk-badging.txt
           grep -q "uses-feature-not-required: name='android.hardware.touchscreen'" /tmp/apk-badging.txt
@@ -111,7 +111,7 @@ jobs:
         run: |
           mkdir -p "$GITHUB_WORKSPACE/qa-output"
           if [ -n "${PROJECT_DIR:-}" ] && [ -d "$PROJECT_DIR" ]; then
-            cp -f "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" "$GITHUB_WORKSPACE/qa-output/BROTV-3.2.3-Splash-Wait-QA.apk" 2>/dev/null || true
+            cp -f "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" "$GITHUB_WORKSPACE/qa-output/BROTV-3.2.4-Full-Category-QA.apk" 2>/dev/null || true
             cp -f "$PROJECT_DIR/app/build/reports/lint-results-debug.html" "$GITHUB_WORKSPACE/qa-output/" 2>/dev/null || true
           fi
           cp -f /tmp/apk-badging.txt /tmp/apk-sha256.txt /tmp/apk-signing.txt /tmp/native-16k.txt "$GITHUB_WORKSPACE/qa-output/" 2>/dev/null || true
@@ -120,6 +120,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: BROTV-3.2.3-Splash-Wait-QA-APK
+          name: BROTV-3.2.4-Full-Category-QA-APK
           path: qa-output/
           if-no-files-found: error
