@@ -7,14 +7,10 @@ on:
     paths:
       - '.github/workflows/android-tv-emulator-v2.yml'
 
-env:
-  ANDROID_HOME: /usr/local/lib/android/sdk
-  ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
+    runs-on: macos-15
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -27,9 +23,10 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort | tail -1)
           test -x "$SDKMANAGER"
-          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
@@ -69,7 +66,7 @@ jobs:
           chmod +x "$PROJECT_DIR/gradlew" "$PROJECT_DIR/ci/"*.sh || true
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           echo "Project root: $PROJECT_DIR"
-          sha256sum /tmp/brotv-source.zip
+          shasum -a 256 /tmp/brotv-source.zip
 
       - name: Unit tests
         shell: bash
@@ -99,7 +96,7 @@ jobs:
           set -euo pipefail
           cd "$PROJECT_DIR"
           APK='app/build/outputs/apk/debug/app-debug.apk'
-          unzip -t "$APK"
+          unzip -t "$APK" >/dev/null
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
           AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort -V | tail -1)
           test -x "$APKSIGNER"
@@ -108,7 +105,7 @@ jobs:
           "$AAPT" dump badging "$APK" | tee /tmp/apk-badging.txt
           grep -q "package: name='com.brotv.player.debug'" /tmp/apk-badging.txt
           bash ci/check_native_16k.sh "$APK"
-          sha256sum "$APK" | tee /tmp/apk-sha256.txt
+          shasum -a 256 "$APK" | tee /tmp/apk-sha256.txt
 
       - name: Detect available Android TV image
         id: tvimage
@@ -133,12 +130,23 @@ jobs:
           target: android-tv
           arch: x86_64
           profile: tv_1080p
-          ram-size: 2048M
+          ram-size: 3072M
           heap-size: 512M
-          emulator-boot-timeout: 900
+          emulator-boot-timeout: 600
           disable-animations: true
-          emulator-options: -no-snapshot-load -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
-          script: cd "$PROJECT_DIR" && bash ci/android_tv_qa.sh
+          emulator-options: -no-snapshot-load -no-snapshot-save -no-window -noaudio -no-boot-anim
+          script: |
+            cd "$PROJECT_DIR"
+            adb wait-for-device
+            for i in {1..30}; do
+              STATE=$(adb get-state 2>/dev/null || true)
+              BOOT=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)
+              [ "$STATE" = device ] && [ "$BOOT" = 1 ] && break
+              sleep 2
+            done
+            adb devices
+            adb install -r -g app/build/outputs/apk/debug/app-debug.apk
+            bash ci/android_tv_qa.sh
 
       - name: Copy QA evidence
         if: always()
