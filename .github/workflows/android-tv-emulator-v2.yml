@@ -34,17 +34,33 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          API='https://api.firestorage.ai/prod/file'
-          SHARE='3ckPDEqCy6buIc2i'
-          FILE_ID='01a0e90b255376e6962e5db458ba2b05'
-          CURL_RETRY=(-4 --http1.1 -A 'Mozilla/5.0 BROTV-CI/3.2' --retry 8 --retry-all-errors --retry-delay 3 --connect-timeout 20 --max-time 180)
-          curl -fLss "${CURL_RETRY[@]}" -X POST "$API/shares/$SHARE/files/$FILE_ID/download" -o /tmp/download.json
-          DOWNLOAD_URL=$(python3 - <<'PY'
-          import json
-          print(json.load(open('/tmp/download.json'))['downloadUrl'])
+          python3 - <<'PY'
+          import json, time, urllib.request, ssl
+          api='https://api.firestorage.ai/prod/file/shares/3ckPDEqCy6buIc2i/files/01a0e90b255376e6962e5db458ba2b05/download'
+          ctx=ssl.create_default_context()
+          headers={'User-Agent':'Mozilla/5.0 BROTV-CI/3.2','Accept':'application/json,*/*'}
+          def fetch(req, dest=None, attempts=8):
+              last=None
+              for i in range(attempts):
+                  try:
+                      with urllib.request.urlopen(req, timeout=60, context=ctx) as r:
+                          data=r.read()
+                      if dest:
+                          open(dest,'wb').write(data)
+                          return None
+                      return data
+                  except Exception as e:
+                      last=e
+                      print(f'attempt {i+1}/{attempts} failed: {e}', flush=True)
+                      time.sleep(min(3*(i+1),15))
+              raise last
+          req=urllib.request.Request(api, data=b'', headers=headers, method='POST')
+          meta=json.loads(fetch(req).decode())
+          url=meta['downloadUrl']
+          req2=urllib.request.Request(url, headers={'User-Agent':'Mozilla/5.0 BROTV-CI/3.2'})
+          fetch(req2, '/tmp/brotv-source.zip')
+          print('Downloaded source bytes:', __import__('os').path.getsize('/tmp/brotv-source.zip'))
           PY
-          )
-          curl -fL "${CURL_RETRY[@]}" "$DOWNLOAD_URL" -o /tmp/brotv-source.zip
           unzip -t /tmp/brotv-source.zip
           rm -rf /tmp/brotv-src && mkdir -p /tmp/brotv-src
           unzip -q /tmp/brotv-source.zip -d /tmp/brotv-src
