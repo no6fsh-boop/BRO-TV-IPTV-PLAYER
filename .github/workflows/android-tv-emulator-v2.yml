@@ -1,4 +1,4 @@
-name: BRO TV 3.3.1 Single Session Full Preload QA Build
+name: BRO TV 3.3.2 Splash Channel Actions QA Build
 on:
   workflow_dispatch:
   push:
@@ -10,14 +10,14 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Download BRO TV 3.3.1 source
+      - name: Download BRO TV 3.3.2 source
         shell: bash
         run: |
           set -euxo pipefail
           API='https://api.firestorage.ai/dev/file'
-          SHARE='oTKPl05f8gfg'
-          TARGET='BROTV-3.3.1-single-session-full-preload-source-v2.zip'
-          CURL=(-4 --http1.1 -A 'BROTV-CI/3.3.1' --retry 8 --retry-all-errors --retry-delay 2 --connect-timeout 20 --max-time 180)
+          SHARE='9o694Xu-St-4'
+          TARGET='BROTV-3.3.2-splash-channel-actions-source.zip'
+          CURL=(-4 --http1.1 -A 'BROTV-CI/3.3.2' --retry 8 --retry-all-errors --retry-delay 2 --connect-timeout 20 --max-time 180)
           curl -fLss "${CURL[@]}" "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/files.json
           FILE_ID=$(python3 -c "import json;d=json.load(open('/tmp/files.json'));fs=d.get('files',d if isinstance(d,list) else []);m=[x for x in fs if x.get('fileName')=='$TARGET' or x.get('name')=='$TARGET'];print((m[0].get('fileId') or m[0].get('id')) if m else '')")
           test -n "$FILE_ID"
@@ -60,7 +60,7 @@ jobs:
           "$APKSIGNER" verify --verbose --print-certs "$APK" | tee /tmp/apk-signing.txt
           "$AAPT" dump badging "$APK" | tee /tmp/apk-badging.txt
           grep -q "package: name='com.brotv.player.debug'" /tmp/apk-badging.txt
-          grep -q "versionName='3.3.1-dev30'" /tmp/apk-badging.txt
+          grep -q "versionName='3.3.2-dev31'" /tmp/apk-badging.txt
           grep -q "leanback-launchable-activity: name='com.brotv.player.MainActivity'" /tmp/apk-badging.txt
           grep -q "uses-feature-not-required: name='android.software.leanback'" /tmp/apk-badging.txt
           grep -q "uses-feature-not-required: name='android.hardware.touchscreen'" /tmp/apk-badging.txt
@@ -70,12 +70,12 @@ jobs:
         if: always()
         run: |
           mkdir -p qa-output
-          cp -f "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" qa-output/BROTV-3.3.1-Single-Session-Full-Preload-QA.apk 2>/dev/null || true
+          cp -f "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" qa-output/BROTV-3.3.2-Splash-Channel-Actions-QA.apk 2>/dev/null || true
           cp -f "$PROJECT_DIR/app/build/reports/lint-results-debug.html" qa-output/ 2>/dev/null || true
           cp -f /tmp/apk-badging.txt /tmp/apk-sha256.txt /tmp/apk-signing.txt /tmp/native-16k.txt qa-output/ 2>/dev/null || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: BROTV-3.3.1-Single-Session-Full-Preload-QA-APK
+          name: BROTV-3.3.2-Splash-Channel-Actions-QA-APK
           path: qa-output/
           if-no-files-found: error
