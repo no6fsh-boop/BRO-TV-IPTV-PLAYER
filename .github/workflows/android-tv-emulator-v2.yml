@@ -15,8 +15,8 @@ jobs:
         run: |
           set -euxo pipefail
           API='https://api.firestorage.ai/dev/file'
-          SHARE='gkanUeCdMx_I'
-          TARGET='BROTV-3.3.7-player-stability-source.zip'
+          SHARE='61O38Z0fa7EC'
+          TARGET='BROTV-3.3.7-player-stability-source-v2.zip'
           CURL=(-4 --http1.1 -A 'BROTV-CI/3.3.7' --retry 8 --retry-all-errors --retry-delay 2 --connect-timeout 20 --max-time 180)
           curl -fLss "${CURL[@]}" "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/files.json
           FILE_ID=$(python3 -c "import json;d=json.load(open('/tmp/files.json'));fs=d.get('files',d if isinstance(d,list) else []);m=[x for x in fs if x.get('fileName')=='$TARGET' or x.get('name')=='$TARGET'];print((m[0].get('fileId') or m[0].get('id')) if m else '')")
