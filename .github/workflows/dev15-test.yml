@@ -1,46 +1,33 @@
-name: Live Preload Source QA
+name: BRO TV 3.3.2 Source Export
 on:
   push:
     branches: ['qa/live-preload-no-apk']
+    paths: ['.github/workflows/dev15-test.yml']
   workflow_dispatch:
 jobs:
-  test-lint-only:
+  export-source:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Download source-only candidate
+      - name: Download BRO TV 3.3.2 source
         shell: bash
         run: |
           set -euxo pipefail
           API='https://api.firestorage.ai/dev/file'
-          SHARE='75C5t4gHNdmM'
-          TARGET='BROTV-live-preload-fix-source.zip'
-          CURL=(-4 --http1.1 -A 'BROTV-CI/live-preload' --retry 8 --retry-all-errors --retry-delay 2 --connect-timeout 20 --max-time 180)
+          SHARE='9o694Xu-St-4'
+          TARGET='BROTV-3.3.2-splash-channel-actions-source.zip'
+          CURL=(-4 --http1.1 -A 'BROTV-CI/source-export' --retry 8 --retry-all-errors --retry-delay 2 --connect-timeout 20 --max-time 180)
           curl -fLss "${CURL[@]}" "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/files.json
           FILE_ID=$(python3 -c "import json;d=json.load(open('/tmp/files.json'));fs=d.get('files',d if isinstance(d,list) else []);m=[x for x in fs if x.get('fileName')=='$TARGET' or x.get('name')=='$TARGET'];print((m[0].get('fileId') or m[0].get('id')) if m else '')")
           test -n "$FILE_ID"
           curl -fLss "${CURL[@]}" -X POST "$API/shares/$SHARE/files/$FILE_ID/download" -o /tmp/download.json
           DOWNLOAD_URL=$(python3 -c "import json;d=json.load(open('/tmp/download.json'));print(d.get('downloadUrl') or d.get('download_url') or '')")
           test -n "$DOWNLOAD_URL"
-          curl -fL "${CURL[@]}" "$DOWNLOAD_URL" -o /tmp/brotv-source.zip
-          unzip -t /tmp/brotv-source.zip >/dev/null
-          rm -rf /tmp/brotv-src && mkdir -p /tmp/brotv-src
-          unzip -q /tmp/brotv-source.zip -d /tmp/brotv-src
-          PROJECT_DIR=$(dirname "$(find /tmp/brotv-src -maxdepth 4 -name settings.gradle.kts -print -quit)")
-          test -f "$PROJECT_DIR/gradlew"
-          chmod +x "$PROJECT_DIR/gradlew"
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-      - uses: actions/setup-java@v5
+          curl -fL "${CURL[@]}" "$DOWNLOAD_URL" -o /tmp/BROTV-3.3.2-source.zip
+          unzip -t /tmp/BROTV-3.3.2-source.zip >/dev/null
+      - uses: actions/upload-artifact@v4
         with:
-          distribution: temurin
-          java-version: '17'
-      - name: Prepare Android SDK
-        run: |
-          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort | tail -1)
-          yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
-      - name: Unit tests
-        run: cd "$PROJECT_DIR" && ./gradlew --no-daemon testDebugUnitTest
-      - name: Lint debug
-        run: cd "$PROJECT_DIR" && ./gradlew --no-daemon lintDebug
+          name: BROTV-3.3.2-Source-Export
+          path: /tmp/BROTV-3.3.2-source.zip
+          if-no-files-found: error
