@@ -1,8 +1,8 @@
-name: BRO TV 3.2.9 HTTP Compatibility QA Build
+name: BRO TV 3.3.0 Full UX Performance QA Build
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [ qa/live-preload-no-apk ]
     paths: ['.github/workflows/android-tv-emulator-v2.yml']
 jobs:
   build-validate:
@@ -10,14 +10,14 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
-      - name: Download BRO TV 3.2.9 source
+      - name: Download BRO TV 3.3.0 source
         shell: bash
         run: |
           set -euxo pipefail
           API='https://api.firestorage.ai/dev/file'
-          SHARE='aDy6l6houJ8u'
-          TARGET='BROTV-3.2.9-http-compat-source.zip'
-          CURL=(-4 --http1.1 -A 'BROTV-CI/3.2.9' --retry 8 --retry-all-errors --retry-delay 2 --connect-timeout 20 --max-time 180)
+          SHARE='b-qVQ_d8PFOG'
+          TARGET='BROTV-3.3.0-full-ux-performance-source.zip'
+          CURL=(-4 --http1.1 -A 'BROTV-CI/3.3.0' --retry 8 --retry-all-errors --retry-delay 2 --connect-timeout 20 --max-time 180)
           curl -fLss "${CURL[@]}" "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/files.json
           FILE_ID=$(python3 -c "import json;d=json.load(open('/tmp/files.json'));fs=d.get('files',d if isinstance(d,list) else []);m=[x for x in fs if x.get('fileName')=='$TARGET' or x.get('name')=='$TARGET'];print((m[0].get('fileId') or m[0].get('id')) if m else '')")
           test -n "$FILE_ID"
@@ -32,40 +32,6 @@ jobs:
           test -f "$PROJECT_DIR/gradlew"
           chmod +x "$PROJECT_DIR/gradlew" "$PROJECT_DIR/ci/"*.sh || true
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-      - name: Apply M3U artwork URL compatibility fix
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-          p = Path(os.environ['PROJECT_DIR']) / 'app/src/main/java/com/brotv/player/data/NetworkUrlPolicy.kt'
-          s = p.read_text()
-          old = '''    /** Accept both provider-supported HTTP and HTTPS media URLs without rewriting the scheme. */
-              fun secureMediaUrlOrNull(raw: String?): String? {
-                  val value = raw.orEmpty().trim()
-                  return runCatching {
-                      val uri = URI(value)
-                      val supported = uri.scheme.equals("http", true) || uri.scheme.equals("https", true)
-                      value.takeIf { supported && !uri.rawAuthority.isNullOrBlank() }
-                  }.getOrNull()
-              }
-          '''
-          new = '''    /** Accept HTTP/HTTPS media URLs as entered, including common unescaped spaces in artwork paths. */
-              fun secureMediaUrlOrNull(raw: String?): String? {
-                  val value = raw.orEmpty().trim()
-                  val prefix = when {
-                      value.startsWith("https://", ignoreCase = true) -> "https://"
-                      value.startsWith("http://", ignoreCase = true) -> "http://"
-                      else -> return null
-                  }
-                  val authority = value.substring(prefix.length).substringBefore('/').trim()
-                  return value.takeIf { authority.isNotBlank() }
-              }
-          '''
-          if old not in s:
-              raise SystemExit('NetworkUrlPolicy patch target not found')
-          p.write_text(s.replace(old, new))
-          PY
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -94,7 +60,7 @@ jobs:
           "$APKSIGNER" verify --verbose --print-certs "$APK" | tee /tmp/apk-signing.txt
           "$AAPT" dump badging "$APK" | tee /tmp/apk-badging.txt
           grep -q "package: name='com.brotv.player.debug'" /tmp/apk-badging.txt
-          grep -q "versionName='3.2.9-dev28'" /tmp/apk-badging.txt
+          grep -q "versionName='3.3.0-dev29'" /tmp/apk-badging.txt
           grep -q "leanback-launchable-activity: name='com.brotv.player.MainActivity'" /tmp/apk-badging.txt
           grep -q "uses-feature-not-required: name='android.software.leanback'" /tmp/apk-badging.txt
           grep -q "uses-feature-not-required: name='android.hardware.touchscreen'" /tmp/apk-badging.txt
@@ -104,12 +70,12 @@ jobs:
         if: always()
         run: |
           mkdir -p qa-output
-          cp -f "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" qa-output/BROTV-3.2.9-HTTP-Compatibility-QA.apk 2>/dev/null || true
+          cp -f "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" qa-output/BROTV-3.3.0-Full-UX-Performance-QA.apk 2>/dev/null || true
           cp -f "$PROJECT_DIR/app/build/reports/lint-results-debug.html" qa-output/ 2>/dev/null || true
           cp -f /tmp/apk-badging.txt /tmp/apk-sha256.txt /tmp/apk-signing.txt /tmp/native-16k.txt qa-output/ 2>/dev/null || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: BROTV-3.2.9-HTTP-Compatibility-QA-APK
+          name: BROTV-3.3.0-Full-UX-Performance-QA-APK
           path: qa-output/
           if-no-files-found: error
