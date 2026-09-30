@@ -1,13 +1,13 @@
-name: BRO TV 3.3.7 Player Stability QA Build
+name: BRO TV 3.3.7 Source Export
 on:
   workflow_dispatch:
   push:
     branches: [ qa/live-preload-no-apk ]
     paths: ['.github/workflows/android-tv-emulator-v2.yml']
 jobs:
-  build-validate:
+  export-source:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Download BRO TV 3.3.7 source
@@ -24,58 +24,10 @@ jobs:
           curl -fLss "${CURL[@]}" -X POST "$API/shares/$SHARE/files/$FILE_ID/download" -o /tmp/download.json
           DOWNLOAD_URL=$(python3 -c "import json;d=json.load(open('/tmp/download.json'));print(d.get('downloadUrl') or d.get('download_url') or '')")
           test -n "$DOWNLOAD_URL"
-          curl -fL "${CURL[@]}" "$DOWNLOAD_URL" -o /tmp/brotv-source.zip
-          unzip -t /tmp/brotv-source.zip >/dev/null
-          rm -rf /tmp/brotv-src && mkdir -p /tmp/brotv-src
-          unzip -q /tmp/brotv-source.zip -d /tmp/brotv-src
-          PROJECT_DIR=$(dirname "$(find /tmp/brotv-src -maxdepth 4 -name settings.gradle.kts -print -quit)")
-          test -f "$PROJECT_DIR/gradlew"
-          chmod +x "$PROJECT_DIR/gradlew" "$PROJECT_DIR/ci/"*.sh || true
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-      - name: Prepare Android SDK
-        run: |
-          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort | tail -1)
-          yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
-      - name: Unit tests
-        run: cd "$PROJECT_DIR" && ./gradlew --no-daemon testDebugUnitTest
-      - name: Lint debug
-        run: cd "$PROJECT_DIR" && ./gradlew --no-daemon lintDebug
-      - name: Build debug APK
-        run: |
-          cd "$PROJECT_DIR"
-          ./gradlew --no-daemon assembleDebug
-          test -s app/build/outputs/apk/debug/app-debug.apk
-      - name: Validate APK and Android TV metadata
-        run: |
-          cd "$PROJECT_DIR"
-          APK='app/build/outputs/apk/debug/app-debug.apk'
-          unzip -t "$APK" >/dev/null
-          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
-          AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort -V | tail -1)
-          "$APKSIGNER" verify --verbose --print-certs "$APK" | tee /tmp/apk-signing.txt
-          "$AAPT" dump badging "$APK" | tee /tmp/apk-badging.txt
-          grep -q "package: name='com.brotv.player.debug'" /tmp/apk-badging.txt
-          grep -q "versionName='3.3.7-dev36'" /tmp/apk-badging.txt
-          grep -q "leanback-launchable-activity: name='com.brotv.player.MainActivity'" /tmp/apk-badging.txt
-          grep -q "uses-feature-not-required: name='android.software.leanback'" /tmp/apk-badging.txt
-          grep -q "uses-feature-not-required: name='android.hardware.touchscreen'" /tmp/apk-badging.txt
-          bash ci/check_native_16k.sh "$APK" | tee /tmp/native-16k.txt
-          sha256sum "$APK" | tee /tmp/apk-sha256.txt
-      - name: Collect QA artifact
-        if: always()
-        run: |
-          mkdir -p qa-output
-          cp -f "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" qa-output/BROTV-3.3.7-Player-Stability-QA.apk 2>/dev/null || true
-          cp -f "$PROJECT_DIR/app/build/reports/lint-results-debug.html" qa-output/ 2>/dev/null || true
-          cp -f /tmp/apk-badging.txt /tmp/apk-sha256.txt /tmp/apk-signing.txt /tmp/native-16k.txt qa-output/ 2>/dev/null || true
+          curl -fL "${CURL[@]}" "$DOWNLOAD_URL" -o /tmp/BROTV-3.3.7-source.zip
+          unzip -t /tmp/BROTV-3.3.7-source.zip >/dev/null
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: BROTV-3.3.7-Player-Stability-QA-APK
-          path: qa-output/
+          name: BROTV-3.3.7-Source
+          path: /tmp/BROTV-3.3.7-source.zip
           if-no-files-found: error
