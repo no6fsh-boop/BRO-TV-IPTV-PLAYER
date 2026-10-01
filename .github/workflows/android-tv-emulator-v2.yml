@@ -62,11 +62,14 @@ jobs:
           set -euxo pipefail
           APK='app/build/outputs/apk/debug/app-debug.apk'
           test -s "$APK"
-          PKG=$(apkanalyzer manifest application-id "$APK")
-          test "$PKG" = 'com.brotv.player.debug'
-          VC=$(apkanalyzer manifest version-code "$APK")
-          test "$VC" = '60'
-          apksigner verify --verbose --print-certs "$APK" | tee /tmp/apk-signature.txt
+          BUILD_TOOLS=$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          test -x "$BUILD_TOOLS/aapt"
+          test -x "$BUILD_TOOLS/apksigner"
+          BADGING=$("$BUILD_TOOLS/aapt" dump badging "$APK" | head -1)
+          echo "$BADGING"
+          echo "$BADGING" | grep -q "package: name='com.brotv.player.debug'"
+          echo "$BADGING" | grep -q "versionCode='60'"
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK" | tee /tmp/apk-signature.txt
           grep -qi '1f78d561f29de63129ed30491b8816a7d91cadf5dbf360d554b5aa24d51d8c06' /tmp/apk-signature.txt
           cp "$APK" /tmp/BROTV-3.3.8-Performance-HDR-QA.apk
           sha256sum /tmp/BROTV-3.3.8-Performance-HDR-QA.apk | tee /tmp/apk.sha256
