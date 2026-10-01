@@ -1,33 +1,83 @@
-name: BRO TV 3.3.7 Source Export
+name: BRO TV 3.3.8 Performance HDR QA Build
 on:
   workflow_dispatch:
   push:
     branches: [ qa/live-preload-no-apk ]
     paths: ['.github/workflows/android-tv-emulator-v2.yml']
+
 jobs:
-  export-source:
+  build-validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Download BRO TV 3.3.7 source
+
+      - name: Download BRO TV 3.3.8 source
         shell: bash
         run: |
           set -euxo pipefail
           API='https://api.firestorage.ai/dev/file'
-          SHARE='61O38Z0fa7EC'
-          TARGET='BROTV-3.3.7-player-stability-source-v2.zip'
-          CURL=(-4 --http1.1 -A 'BROTV-CI/3.3.7' --retry 8 --retry-all-errors --retry-delay 2 --connect-timeout 20 --max-time 180)
+          SHARE='GaPUNH7Ly4Fj'
+          TARGET='BROTV-3.3.8-dev37-source.zip'
+          CURL=(-4 --http1.1 -A 'BROTV-CI/3.3.8' --retry 8 --retry-all-errors --retry-delay 2 --connect-timeout 20 --max-time 180)
           curl -fLss "${CURL[@]}" "$API/shares/$SHARE/files?maxResults=1000" -o /tmp/files.json
           FILE_ID=$(python3 -c "import json;d=json.load(open('/tmp/files.json'));fs=d.get('files',d if isinstance(d,list) else []);m=[x for x in fs if x.get('fileName')=='$TARGET' or x.get('name')=='$TARGET'];print((m[0].get('fileId') or m[0].get('id')) if m else '')")
           test -n "$FILE_ID"
           curl -fLss "${CURL[@]}" -X POST "$API/shares/$SHARE/files/$FILE_ID/download" -o /tmp/download.json
           DOWNLOAD_URL=$(python3 -c "import json;d=json.load(open('/tmp/download.json'));print(d.get('downloadUrl') or d.get('download_url') or '')")
           test -n "$DOWNLOAD_URL"
-          curl -fL "${CURL[@]}" "$DOWNLOAD_URL" -o /tmp/BROTV-3.3.7-source.zip
-          unzip -t /tmp/BROTV-3.3.7-source.zip >/dev/null
+          curl -fL "${CURL[@]}" "$DOWNLOAD_URL" -o /tmp/brotv338.zip
+          unzip -t /tmp/brotv338.zip >/dev/null
+          rm -rf /tmp/brotv338-src && mkdir -p /tmp/brotv338-src
+          unzip -q /tmp/brotv338.zip -d /tmp/brotv338-src
+          test -f /tmp/brotv338-src/brotv338_work/gradlew
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Prepare Android build
+        shell: bash
+        working-directory: /tmp/brotv338-src/brotv338_work
+        run: chmod +x gradlew
+
+      - name: Unit tests
+        working-directory: /tmp/brotv338-src/brotv338_work
+        run: ./gradlew --no-daemon testDebugUnitTest
+
+      - name: Lint debug
+        working-directory: /tmp/brotv338-src/brotv338_work
+        run: ./gradlew --no-daemon lintDebug
+
+      - name: Build debug APK
+        working-directory: /tmp/brotv338-src/brotv338_work
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: Validate APK, package and fixed QA signer
+        shell: bash
+        working-directory: /tmp/brotv338-src/brotv338_work
+        run: |
+          set -euxo pipefail
+          APK='app/build/outputs/apk/debug/app-debug.apk'
+          test -s "$APK"
+          PKG=$(apkanalyzer manifest application-id "$APK")
+          test "$PKG" = 'com.brotv.player.debug'
+          VC=$(apkanalyzer manifest version-code "$APK")
+          test "$VC" = '60'
+          apksigner verify --verbose --print-certs "$APK" | tee /tmp/apk-signature.txt
+          grep -qi '1f78d561f29de63129ed30491b8816a7d91cadf5dbf360d554b5aa24d51d8c06' /tmp/apk-signature.txt
+          cp "$APK" /tmp/BROTV-3.3.8-Performance-HDR-QA.apk
+          sha256sum /tmp/BROTV-3.3.8-Performance-HDR-QA.apk | tee /tmp/apk.sha256
+
       - uses: actions/upload-artifact@v4
         with:
-          name: BROTV-3.3.7-Source
-          path: /tmp/BROTV-3.3.7-source.zip
+          name: BROTV-3.3.8-Performance-HDR-QA-APK
+          path: |
+            /tmp/BROTV-3.3.8-Performance-HDR-QA.apk
+            /tmp/apk.sha256
+            /tmp/apk-signature.txt
+            /tmp/brotv338-src/brotv338_work/app/build/reports/lint-results-debug.html
+            /tmp/brotv338-src/brotv338_work/app/build/reports/tests/testDebugUnitTest/
           if-no-files-found: error
