@@ -10,20 +10,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Reconstruct and inspect archived dev15 source
+      - name: Reconstruct archived dev15 source
         shell: bash
         run: |
           set -euxo pipefail
           rm -rf ci-src /tmp/dev15-source.zip
           mkdir ci-src
           cat build-source.zip.part-* > /tmp/dev15-source.zip
-          unzip -t /tmp/dev15-source.zip | tail -5
           unzip -q /tmp/dev15-source.zip -d ci-src
-          echo '--- settings files ---'
-          find ci-src -name settings.gradle.kts -print
           PROJECT_ROOT="$(dirname "$(find ci-src -name settings.gradle.kts -print -quit)")"
           test -n "$PROJECT_ROOT"
           echo "PROJECT_ROOT=$PROJECT_ROOT" >> "$GITHUB_ENV"
-          echo '--- app identity ---'
-          grep -nE 'applicationId|versionCode|versionName|namespace' "$PROJECT_ROOT/app/build.gradle.kts" || true
           grep -q 'com.brotv.player' "$PROJECT_ROOT/app/build.gradle.kts"
+      - name: Inspect Firestorage patch share
+        shell: bash
+        run: |
+          set -euxo pipefail
+          curl -L --fail --silent --show-error 'https://firestorage.ai/ja/f/E3hXDYOALyrL' -o /tmp/fire.html
+          wc -c /tmp/fire.html
+          grep -Eo 'https?[^"[:space:]<>]+' /tmp/fire.html | grep -Ei 'download|api|file' | head -30 || true
+          grep -Ei '01a0fe1b0961726fac7d9400978c7706|iC8yizmgpdS52Nam|BROTV-dev16|download' /tmp/fire.html | head -30 || true
