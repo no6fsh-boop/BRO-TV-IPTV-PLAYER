@@ -22,11 +22,21 @@ jobs:
           test -n "$PROJECT_ROOT"
           echo "PROJECT_ROOT=$PROJECT_ROOT" >> "$GITHUB_ENV"
           grep -q 'com.brotv.player' "$PROJECT_ROOT/app/build.gradle.kts"
-      - name: Inspect Firestorage patch share
+      - name: Inspect Firestorage client API
         shell: bash
         run: |
           set -euxo pipefail
-          curl -L --fail --silent --show-error 'https://firestorage.ai/ja/f/E3hXDYOALyrL' -o /tmp/fire.html
-          wc -c /tmp/fire.html
-          grep -Eo 'https?[^"[:space:]<>]+' /tmp/fire.html | grep -Ei 'download|api|file' | head -30 || true
-          grep -Ei '01a0fe1b0961726fac7d9400978c7706|iC8yizmgpdS52Nam|BROTV-dev16|download' /tmp/fire.html | head -30 || true
+          curl -L --fail --silent --show-error 'https://firestorage.ai/_next/static/chunks/app/(files)/ja/f/page-4d19ae0a4ce39d79.js' -o /tmp/fire.js
+          wc -c /tmp/fire.js
+          python3 - <<'PY'
+          import re
+          s=open('/tmp/fire.js','r',encoding='utf-8',errors='ignore').read()
+          for pat in [r'https?[^"\'\\ ]+', r'/api/[^"\'\\ ]+', r'api[^"\'\\ ]{0,160}', r'download[^"\'\\ ]{0,200}', r'public[^"\'\\ ]{0,200}']:
+              print('\nPATTERN',pat)
+              seen=[]
+              for m in re.finditer(pat,s,re.I):
+                  v=m.group(0)
+                  if v not in seen:
+                      seen.append(v); print(v[:400])
+                      if len(seen)>=40: break
+          PY
