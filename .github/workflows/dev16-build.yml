@@ -1,0 +1,27 @@
+name: BRO TV dev16 Build
+
+on:
+  push:
+    branches: [codex/build-latest-dev15]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect archived dev15 source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf ci-src
+          mkdir ci-src
+          unzip -q build-source.zip -d ci-src
+          echo '--- settings files ---'
+          find ci-src -name settings.gradle.kts -print
+          PROJECT_ROOT="$(dirname "$(find ci-src -name settings.gradle.kts -print -quit)")"
+          test -n "$PROJECT_ROOT"
+          echo "PROJECT_ROOT=$PROJECT_ROOT" >> "$GITHUB_ENV"
+          echo '--- app identity ---'
+          grep -nE 'applicationId|versionCode|versionName|namespace' "$PROJECT_ROOT/app/build.gradle.kts" || true
+          grep -q 'com.brotv.player' "$PROJECT_ROOT/app/build.gradle.kts"
