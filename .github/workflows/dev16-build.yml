@@ -8,35 +8,70 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
-      - name: Reconstruct archived dev15 source
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Reconstruct dev15 and apply dev16 patch
         shell: bash
         run: |
           set -euxo pipefail
-          rm -rf ci-src /tmp/dev15-source.zip
+          rm -rf ci-src /tmp/dev15-source.zip /tmp/dev16.patch
           mkdir ci-src
           cat build-source.zip.part-* > /tmp/dev15-source.zip
+          unzip -t /tmp/dev15-source.zip | tail -5
           unzip -q /tmp/dev15-source.zip -d ci-src
           PROJECT_ROOT="$(dirname "$(find ci-src -name settings.gradle.kts -print -quit)")"
           test -n "$PROJECT_ROOT"
           echo "PROJECT_ROOT=$PROJECT_ROOT" >> "$GITHUB_ENV"
           grep -q 'com.brotv.player' "$PROJECT_ROOT/app/build.gradle.kts"
-      - name: Inspect Firestorage client API
+
+          wc -c .github/patches/dev16.b64.part*
+          cat .github/patches/dev16.b64.part* | base64 -d > /tmp/dev16.patch
+          echo 'eea9ff6dd172c6bcc7af8a37ddae2016ed03860d197c82476ffd32e62c0455ca  /tmp/dev16.patch' | sha256sum -c -
+          cd "$PROJECT_ROOT"
+          git apply --check /tmp/dev16.patch
+          git apply /tmp/dev16.patch
+          grep -q 'versionCode = 39' app/build.gradle.kts
+          grep -q 'versionName = "3.0.0-dev16"' app/build.gradle.kts
+
+      - name: Unit tests
+        shell: bash
+        working-directory: ${{ env.PROJECT_ROOT }}
+        run: |
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest --stacktrace
+
+      - name: Lint
+        shell: bash
+        working-directory: ${{ env.PROJECT_ROOT }}
+        run: ./gradlew lintDebug --stacktrace
+
+      - name: Build APK
+        shell: bash
+        working-directory: ${{ env.PROJECT_ROOT }}
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Verify APK identity
         shell: bash
         run: |
           set -euxo pipefail
-          curl -L --fail --silent --show-error 'https://firestorage.ai/_next/static/chunks/app/(files)/ja/f/page-4d19ae0a4ce39d79.js' -o /tmp/fire.js
-          wc -c /tmp/fire.js
-          python3 - <<'PY'
-          import re
-          s=open('/tmp/fire.js','r',encoding='utf-8',errors='ignore').read()
-          for pat in [r'https?[^"\'\\ ]+', r'/api/[^"\'\\ ]+', r'api[^"\'\\ ]{0,160}', r'download[^"\'\\ ]{0,200}', r'public[^"\'\\ ]{0,200}']:
-              print('\nPATTERN',pat)
-              seen=[]
-              for m in re.finditer(pat,s,re.I):
-                  v=m.group(0)
-                  if v not in seen:
-                      seen.append(v); print(v[:400])
-                      if len(seen)>=40: break
-          PY
+          APK="$(find "$PROJECT_ROOT/app/build/outputs/apk/debug" -name '*.apk' -type f -print -quit)"
+          test -n "$APK"
+          echo "APK=$APK" >> "$GITHUB_ENV"
+          sha256sum "$APK"
+          ls -lh "$APK"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: BROTV-3.0.0-dev16-Performance-HDR-QA
+          path: ${{ env.APK }}
+          if-no-files-found: error
+          retention-days: 14
