@@ -10,13 +10,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect archived dev15 source
+      - name: Reconstruct and inspect archived dev15 source
         shell: bash
         run: |
           set -euxo pipefail
-          rm -rf ci-src
+          rm -rf ci-src /tmp/dev15-source.zip
           mkdir ci-src
-          unzip -q build-source.zip -d ci-src
+          cat build-source.zip.part-* > /tmp/dev15-source.zip
+          unzip -t /tmp/dev15-source.zip | tail -5
+          unzip -q /tmp/dev15-source.zip -d ci-src
           echo '--- settings files ---'
           find ci-src -name settings.gradle.kts -print
           PROJECT_ROOT="$(dirname "$(find ci-src -name settings.gradle.kts -print -quit)")"
